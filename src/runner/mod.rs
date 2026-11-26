@@ -5,6 +5,7 @@ pub mod download;
 pub mod extract;
 pub mod install;
 pub mod platform;
+pub mod process;
 
 pub use download::download;
 pub use extract::extract;

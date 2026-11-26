@@ -80,3 +80,39 @@ fn create_refuses_existing_directory_without_overwrite() {
         .failure()
         .stderr(predicate::str::contains("already exists"));
 }
+
+#[test]
+fn start_requires_configured_runner() {
+    let dir = tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("octorun").unwrap();
+    cmd.args(["-d"])
+        .arg(dir.path())
+        .arg("start")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("not configured"));
+}
+
+#[test]
+fn stop_requires_recorded_process() {
+    let dir = tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("octorun").unwrap();
+    cmd.args(["-d"])
+        .arg(dir.path())
+        .arg("stop")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no runner process is recorded"));
+}
+
+#[test]
+fn remove_requires_existing_runner() {
+    let dir = tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("octorun").unwrap();
+    cmd.args(["-d"])
+        .arg(dir.path())
+        .arg("remove")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("does not exist"));
+}

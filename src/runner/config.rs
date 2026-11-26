@@ -1,4 +1,4 @@
-//! Configuring a downloaded runner with the GitHub registration token.
+//! Configuring and removing a runner through its bundled scripts.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -50,6 +50,12 @@ pub fn config_args(options: &Options) -> Vec<String> {
     args
 }
 
+/// Build the argument list used to remove a runner.
+#[must_use]
+pub fn remove_args(token: &str) -> Vec<String> {
+    vec!["remove".to_owned(), "--token".to_owned(), token.to_owned()]
+}
+
 /// Configure the runner in `dir`.
 ///
 /// The configuration script inherits the current standard streams so the user
@@ -59,18 +65,34 @@ pub fn config_args(options: &Options) -> Vec<String> {
 ///
 /// Returns an error if the script cannot be started or exits unsuccessfully.
 pub fn configure(dir: &Path, options: &Options) -> Result<()> {
-    let args = config_args(options);
+    let mut command = script_command();
+    command.args(config_args(options));
+    run_script(dir, "configuration", command)
+}
 
-    let mut command = if cfg!(windows) {
+/// Deregister the runner in `dir` using `token`.
+///
+/// # Errors
+///
+/// Returns an error if the script cannot be started or exits unsuccessfully.
+pub fn remove(dir: &Path, token: &str) -> Result<()> {
+    let mut command = script_command();
+    command.args(remove_args(token));
+    run_script(dir, "removal", command)
+}
+
+fn script_command() -> Command {
+    if cfg!(windows) {
         let mut command = Command::new("cmd");
         command.arg("/C").arg("config.cmd");
         command
     } else {
         Command::new("./config.sh")
-    };
+    }
+}
 
+fn run_script(dir: &Path, action: &str, mut command: Command) -> Result<()> {
     command
-        .args(&args)
         .current_dir(dir)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
@@ -79,7 +101,7 @@ pub fn configure(dir: &Path, options: &Options) -> Result<()> {
     let status = command.status()?;
     if !status.success() {
         return Err(Error::Command(format!(
-            "runner configuration failed with {status}"
+            "runner {action} failed with {status}"
         )));
     }
 
@@ -88,7 +110,7 @@ pub fn configure(dir: &Path, options: &Options) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Options, config_args};
+    use super::{Options, config_args, remove_args};
 
     fn options() -> Options {
         Options {
@@ -143,5 +165,10 @@ mod tests {
                 "fast",
             ]
         );
+    }
+
+    #[test]
+    fn builds_remove_arguments() {
+        assert_eq!(remove_args("secret"), vec!["remove", "--token", "secret"]);
     }
 }

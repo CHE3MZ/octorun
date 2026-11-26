@@ -1,14 +1,20 @@
 //! `octorun stop` — stop a preconfigured runner.
 
+use super::{runner_dir, validate_name};
 use crate::cli::Cli;
-use crate::error::{Error, Result};
+use crate::error::Result;
+use crate::runner::process;
 
-/// Stop the named runner if it is running locally.
+/// Stop the named runner if it was started by octorun.
 ///
 /// # Errors
 ///
-/// Returns an error if the runner cannot be stopped.
+/// Returns an error if no process is recorded or it cannot be terminated.
 pub fn run(cli: &Cli) -> Result<()> {
-    tracing::debug!(name = %cli.name, "stop requested");
-    Err(Error::Unimplemented("stop".to_owned()))
+    validate_name(&cli.name)?;
+    let dir = runner_dir(cli);
+    let pid = process::stop(&dir)?;
+
+    tracing::info!("stopped runner `{}` (pid {pid})", cli.name);
+    Ok(())
 }
