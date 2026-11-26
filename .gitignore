@@ -1,0 +1,35 @@
+# Build artifacts
+/target/
+build/
+dist/
+
+# Logs
+/logs/
+
+# Temporary files
+tmp/
+temp/
+ignore/
+.history/
+
+# Coverage
+
+/covreport/
+
+# OS files
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Environment variables
+.env*
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+env/
+venv/
+.venv/

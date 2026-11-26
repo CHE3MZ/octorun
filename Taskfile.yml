@@ -1,0 +1,138 @@
+version: '3'
+
+tasks:
+  default:
+    desc: Show all tasks
+    cmds:
+      - task --list
+    silent: true
+  ops:
+    desc: Run all ops tasks
+    ignore_error: true
+    cmds:
+      - task lint
+      - task format
+      - task secrets
+      - task scan
+      - task checks
+  lint:
+    desc: Run linters
+    cmds:
+      - cmd: cargo clippy --all-targets --all-features
+      - cmd: cargo check --all-targets --all-features
+      - cmd: cargo deny check
+      - cmd: cargo audit
+      - cmd: cargo machete
+  format:
+    desc: Run formatters
+    cmds:
+      - cmd: cargo fmt --all
+  test:
+    desc: Run tests using cargo nextest
+    cmds:
+      - cmd: cargo nextest run --all-targets --all-features
+  test-advanced:
+    desc: Run tests using cargo test
+    cmds:
+      - task: test
+      - cmd: cargo test --doc --all-features
+      - cmd: cargo mutants --output logs
+  build:
+    desc: Build targets
+    cmds:
+      - cmd: cargo build
+  build-strict:
+    desc: Build all targets and features
+    cmds:
+      - cmd: cargo build --all-targets --all-features
+  coverage:
+    desc: Run coverage tools
+    cmds:
+      - cmd: cargo llvm-cov --all-targets --all-features
+  coverage-report:
+    env:
+      targetdir: target
+      artifactsdir: artifacts
+      inputdir: target/llvm-cov-target
+      outputdir: covreport
+    desc: Generate coverage report
+    cmds:
+      - task: clean
+      - cmd: cargo llvm-cov --all-targets --all-features --no-report
+      - cmd: rm -rf $outputdir
+      - cmd: grcov $inputdir -s . -b $inputdir/debug -t html -o $outputdir
+      - cmd: mv $targetdir $outputdir/$artifactsdir
+      - cmd: echo /$artifactsdir/ > covreport/.gitignore
+      - task: clean
+  clean:
+    desc: Clean up the working directory
+    cmds:
+      - cmd: cargo clean
+      - cmd: rm -rf logs
+      - cmd: uvx ruff clean
+  cliff:
+    desc: Run git cliff
+    silent: true
+    env:
+      RUST_LOG: off
+    cmds:
+      - git-cliff --unreleased --strip all
+  check-cargo:
+    desc: Verify cargo configuration
+    ignore_error: true
+    cmds:
+      - cmd: cargo msrv verify --all-features
+      - cmd: cargo semver-checks --all-features
+      - cmd: cargo metadata --no-deps --quiet
+      - cmd: cargo tree --edges features
+      - cmd: cargo tree -d
+  check-links:
+    desc: Lint links
+    cmds:
+      - cmd: lychee .
+  check-scripts:
+    desc: Lint scripts
+    ignore_error: true
+    cmds:
+      - cmd: find scripts -type f -name '*.sh' -exec shellcheck {} +
+      - cmd: uvx ruff check . --no-cache
+      - cmd: uvx ruff format . --check --no-cache
+  check-configs:
+    desc: Lint configs
+    ignore_error: true
+    cmds:
+      - cmd: taplo lint
+      - cmd: taplo fmt
+  check-actions:
+    desc: Lint actions
+    cmds:
+      - cmd: pinact run
+      - cmd: pinact run --update --check
+      - cmd: actionlint
+      - cmd: zizmor . --quiet
+  checks:
+    desc: Run all checks
+    ignore_error: true
+    cmds:
+      - task: check-cargo
+      - task: check-links
+      - task: check-scripts
+      - task: check-configs
+      - task: check-actions
+  secrets:
+    desc: Run secret scans
+    ignore_error: true
+    cmds:
+      - cmd: trufflehog git file://. --results=verified,unknown --fail
+      - cmd: gitleaks git . --no-banner --verbose
+      - cmd: betterleaks git . --no-banner --verbose
+  scan:
+    desc: Run other ops tools on the repo
+    ignore_error: true
+    cmds:
+      - cmd: opengrep scan
+      - cmd: osv-scanner scan source --recursive .
+      - cmd: gitleaks git . --no-banner --verbose
+      - cmd: actionlint --verbose
+      - cmd: find scripts -type f -name '*.sh' -exec shellcheck {} +
+      - cmd: scorecard --local . --format json | gron
