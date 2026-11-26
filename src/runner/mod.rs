@@ -1,7 +1,9 @@
-//! Runner platform detection, download, and extraction.
+//! Runner platform detection, download, extraction, and configuration.
 
+pub mod config;
 pub mod download;
 pub mod extract;
+pub mod install;
 pub mod platform;
 
 pub use download::download;

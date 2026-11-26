@@ -40,6 +40,10 @@ pub enum Error {
     #[error("configuration error: {0}")]
     Config(String),
 
+    /// An external command failed.
+    #[error("command failed: {0}")]
+    Command(String),
+
     /// A command that is planned but not implemented yet.
     #[error("`{0}` is not implemented yet")]
     Unimplemented(String),
