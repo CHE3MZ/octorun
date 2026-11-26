@@ -1,6 +1,9 @@
 //! Parsing and representation of GitHub repositories.
 
 use std::fmt;
+use std::process::Command;
+
+use serde::Deserialize;
 
 use crate::error::{Error, Result};
 
@@ -67,7 +70,91 @@ impl Repository {
     /// The HTTPS URL of the repository.
     #[must_use]
     pub fn url(&self) -> String {
-        format!("https://{}/{}/{}", self.host, self.owner, self.name)
+        let host = &self.host;
+        let owner = &self.owner;
+        let name = &self.name;
+        format!("https://{host}/{owner}/{name}")
+    }
+
+    /// Resolve the repository for the current directory.
+    ///
+    /// Tries the GitHub CLI first, then the `origin` git remote.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Config`] when no repository can be determined.
+    pub fn current() -> Result<Self> {
+        if let Some(repository) = Self::from_gh() {
+            return Ok(repository);
+        }
+        if let Some(repository) = Self::from_git_remote() {
+            return Ok(repository);
+        }
+        Err(Error::Config(
+            "could not determine the current repository; pass --repo OWNER/REPO".to_owned(),
+        ))
+    }
+
+    /// Parse a git remote URL into a repository.
+    ///
+    /// Handles `https://`, `ssh://git@`, and `git@host:owner/repo` forms.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Config`] if the URL is not a supported git remote.
+    pub fn from_remote_url(url: &str) -> Result<Self> {
+        let url = url.trim();
+        let (host, path) = if let Some(rest) = url.strip_prefix("git@") {
+            rest.split_once(':').ok_or_else(|| Self::invalid(url))?
+        } else if let Some(rest) = url.strip_prefix("ssh://git@") {
+            rest.split_once('/').ok_or_else(|| Self::invalid(url))?
+        } else if let Some(rest) = url
+            .strip_prefix("https://")
+            .or_else(|| url.strip_prefix("http://"))
+        {
+            rest.split_once('/').ok_or_else(|| Self::invalid(url))?
+        } else {
+            return Err(Self::invalid(url));
+        };
+
+        let path = path.trim_end_matches('/');
+        let path = path.strip_suffix(".git").unwrap_or(path);
+        Self::parse(&format!("{host}/{path}"))
+    }
+
+    fn from_gh() -> Option<Self> {
+        #[derive(Deserialize)]
+        struct RepoView {
+            #[serde(rename = "nameWithOwner")]
+            name_with_owner: String,
+            url: String,
+        }
+
+        let output = Command::new("gh")
+            .args(["repo", "view", "--json", "nameWithOwner,url"])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+
+        let view: RepoView = serde_json::from_slice(&output.stdout).ok()?;
+        let host = view.url.split("://").nth(1)?.split('/').next()?;
+        let (owner, name) = view.name_with_owner.split_once('/')?;
+        Self::parse(&format!("{host}/{owner}/{name}")).ok()
+    }
+
+    fn from_git_remote() -> Option<Self> {
+        let output = Command::new("git")
+            .args(["remote", "get-url", "origin"])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+
+        let url = String::from_utf8(output.stdout).ok()?;
+        Self::from_remote_url(url.trim()).ok()
     }
 }
 
@@ -113,5 +200,31 @@ mod tests {
                 "expected `{reference}` to be rejected"
             );
         }
+    }
+
+    #[test]
+    fn parses_https_remote() {
+        let repo = Repository::from_remote_url("https://github.com/acme/app.git").unwrap();
+        assert_eq!(repo.host(), "github.com");
+        assert_eq!(repo.to_string(), "acme/app");
+    }
+
+    #[test]
+    fn parses_ssh_remote() {
+        let repo = Repository::from_remote_url("git@github.com:acme/app.git").unwrap();
+        assert_eq!(repo.host(), "github.com");
+        assert_eq!(repo.to_string(), "acme/app");
+    }
+
+    #[test]
+    fn parses_ssh_scheme_remote() {
+        let repo = Repository::from_remote_url("ssh://git@github.example.com/acme/app").unwrap();
+        assert_eq!(repo.host(), "github.example.com");
+        assert_eq!(repo.to_string(), "acme/app");
+    }
+
+    #[test]
+    fn rejects_unknown_remote_forms() {
+        assert!(Repository::from_remote_url("file:///tmp/app").is_err());
     }
 }
