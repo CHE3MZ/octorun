@@ -4,12 +4,14 @@ pub mod create;
 pub mod remove;
 pub mod start;
 pub mod stop;
+pub mod temp;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::cli::{Cli, Command};
 use crate::error::{Error, Result};
-use crate::github::{Repository, Scope};
+use crate::github::{Client, Repository, Scope, TokenKind, resolve_token};
+use crate::runner::config;
 
 /// Dispatch a parsed [`Cli`] to the matching subcommand handler.
 ///
@@ -22,6 +24,7 @@ pub fn run(cli: &Cli) -> Result<()> {
         Command::Remove(args) => remove::run(cli, args),
         Command::Start => start::run(cli),
         Command::Stop => stop::run(cli),
+        Command::Temp(args) => temp::run(cli, args),
     }
 }
 
@@ -65,6 +68,19 @@ pub(crate) fn runner_url(host: &str, scope: &Scope) -> String {
         Scope::Organization(organization) => format!("https://{host}/{organization}"),
         Scope::Enterprise(enterprise) => format!("https://{host}/enterprises/{enterprise}"),
     }
+}
+
+/// Deregister the runner in `dir` from GitHub.
+///
+/// # Errors
+///
+/// Returns an error if the token cannot be resolved or the configuration
+/// script fails.
+pub(crate) fn deregister(dir: &Path, host: &str, scope: &Scope) -> Result<()> {
+    let token = resolve_token(host)?;
+    let api = Client::new(host, token)?;
+    let removal_token = api.runner_token(scope, TokenKind::Remove)?;
+    config::remove(dir, &removal_token)
 }
 
 #[cfg(test)]

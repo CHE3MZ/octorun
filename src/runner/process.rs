@@ -2,7 +2,10 @@
 
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::Duration;
 
 use crate::error::{Error, Result};
 
@@ -15,7 +18,27 @@ pub fn log_path(dir: &Path) -> PathBuf {
     dir.join(LOG_FILE)
 }
 
+/// How a watched runner process finished.
+#[derive(Debug)]
+pub enum WaitOutcome {
+    /// The process exited on its own.
+    Exited(ExitStatus),
+    /// A cancellation was requested.
+    Cancelled,
+}
+
 /// Start the runner in `dir` and return its process id.
+///
+/// # Errors
+///
+/// Returns an error if the runner is not configured, is already running, or
+/// cannot be spawned.
+pub fn start(dir: &Path) -> Result<u32> {
+    let child = spawn(dir)?;
+    Ok(child.id())
+}
+
+/// Start the runner in `dir` and return the child process.
 ///
 /// The process id is recorded in a `.octorun.pid` file so that [`stop`] can
 /// find it later.
@@ -24,7 +47,7 @@ pub fn log_path(dir: &Path) -> PathBuf {
 ///
 /// Returns an error if the runner is not configured, is already running, or
 /// cannot be spawned.
-pub fn start(dir: &Path) -> Result<u32> {
+pub fn spawn(dir: &Path) -> Result<Child> {
     let script = run_script_name();
     let script_path = dir.join(script);
     if !script_path.exists() {
@@ -63,7 +86,24 @@ pub fn start(dir: &Path) -> Result<u32> {
         return Err(error);
     }
 
-    Ok(pid)
+    Ok(child)
+}
+
+/// Wait for `child` to exit or for `cancelled` to be set.
+///
+/// # Errors
+///
+/// Returns an error if the child status cannot be read.
+pub fn wait(child: &mut Child, cancelled: &AtomicBool) -> Result<WaitOutcome> {
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(WaitOutcome::Exited(status));
+        }
+        if cancelled.load(Ordering::SeqCst) {
+            return Ok(WaitOutcome::Cancelled);
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
 }
 
 /// Stop the runner recorded in `dir` and return its process id.

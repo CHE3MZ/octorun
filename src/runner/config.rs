@@ -20,6 +20,8 @@ pub struct Options {
     pub labels: Option<String>,
     /// Runner group.
     pub group: Option<String>,
+    /// Run a single job, then deregister the runner.
+    pub ephemeral: bool,
 }
 
 /// Build the argument list for `config.sh` / `config.cmd`.
@@ -37,6 +39,9 @@ pub fn config_args(options: &Options) -> Vec<String> {
 
     if options.replace {
         args.push("--replace".to_owned());
+    }
+    if options.ephemeral {
+        args.push("--ephemeral".to_owned());
     }
     if let Some(labels) = &options.labels {
         args.push("--labels".to_owned());
@@ -120,6 +125,7 @@ mod tests {
             replace: false,
             labels: None,
             group: None,
+            ephemeral: false,
         }
     }
 
@@ -170,5 +176,15 @@ mod tests {
     #[test]
     fn builds_remove_arguments() {
         assert_eq!(remove_args("secret"), vec!["remove", "--token", "secret"]);
+    }
+
+    #[test]
+    fn adds_ephemeral_flag() {
+        let options = Options {
+            ephemeral: true,
+            ..options()
+        };
+
+        assert!(config_args(&options).iter().any(|arg| arg == "--ephemeral"));
     }
 }

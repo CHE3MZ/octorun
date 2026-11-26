@@ -6,8 +6,7 @@ use std::path::{Path, PathBuf};
 use super::{runner_dir, scope_for, validate_name};
 use crate::cli::{Cli, RemoveArgs};
 use crate::error::{Error, Result};
-use crate::github::{Client, Repository, TokenKind, resolve_token};
-use crate::runner::config;
+use crate::github::Repository;
 
 /// Remove a runner and its directory.
 ///
@@ -37,10 +36,7 @@ pub fn run(cli: &Cli, args: &RemoveArgs) -> Result<()> {
         let host = repository.host();
         let scope = scope_for(&repository, args.org.as_deref(), args.enterprise.as_deref())?;
 
-        let token = resolve_token(host)?;
-        let api = Client::new(host, token)?;
-        let removal_token = api.runner_token(&scope, TokenKind::Remove)?;
-        config::remove(&runner_dir, &removal_token)?;
+        super::deregister(&runner_dir, host, &scope)?;
     } else {
         tracing::warn!(
             "no configuration script found; deleting the directory without deregistering"

@@ -13,7 +13,8 @@ fn help_lists_all_subcommands() {
         .stdout(predicate::str::contains("create"))
         .stdout(predicate::str::contains("remove"))
         .stdout(predicate::str::contains("start"))
-        .stdout(predicate::str::contains("stop"));
+        .stdout(predicate::str::contains("stop"))
+        .stdout(predicate::str::contains("temp"));
 }
 
 #[test]
@@ -115,4 +116,28 @@ fn remove_requires_existing_runner() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("does not exist"));
+}
+
+#[test]
+fn temp_rejects_invalid_repository() {
+    let dir = tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("octorun").unwrap();
+    cmd.args(["-r", "not-a-repo", "-d"])
+        .arg(dir.path())
+        .arg("temp")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid repository"));
+}
+
+#[test]
+fn temp_rejects_unsafe_runner_name() {
+    let dir = tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("octorun").unwrap();
+    cmd.args(["-r", "acme/app", "-d"])
+        .arg(dir.path())
+        .args(["-n", "..", "temp", "--ephemeral"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid runner name"));
 }

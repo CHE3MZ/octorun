@@ -49,6 +49,9 @@ pub enum Command {
 
     /// Stop a preconfigured runner.
     Stop,
+
+    /// Create a temporary runner and remove it when stopped.
+    Temp(TempArgs),
 }
 
 /// Options accepted by `octorun create`.
@@ -89,6 +92,18 @@ pub struct RemoveArgs {
     /// Remove the runner at the Organization level with the organization's name.
     #[arg(long, value_name = "ORG")]
     pub org: Option<String>,
+}
+
+/// Options accepted by `octorun temp`.
+#[derive(Debug, Clone, Args)]
+pub struct TempArgs {
+    /// Run a single job, then remove the runner.
+    #[arg(long)]
+    pub ephemeral: bool,
+
+    /// Options used to create the runner.
+    #[command(flatten)]
+    pub create: CreateArgs,
 }
 
 #[cfg(test)]
@@ -148,5 +163,29 @@ mod tests {
     #[test]
     fn subcommand_is_required() {
         assert!(Cli::try_parse_from(["octorun"]).is_err());
+    }
+
+    #[test]
+    fn temp_flags_parse() {
+        let cli = Cli::try_parse_from([
+            "octorun",
+            "temp",
+            "--ephemeral",
+            "-g",
+            "fast",
+            "-l",
+            "https://example.com/runner.zip",
+        ])
+        .unwrap();
+
+        let Command::Temp(args) = cli.command else {
+            panic!("expected temp subcommand");
+        };
+        assert!(args.ephemeral);
+        assert_eq!(args.create.group.as_deref(), Some("fast"));
+        assert_eq!(
+            args.create.location.as_deref(),
+            Some("https://example.com/runner.zip")
+        );
     }
 }
