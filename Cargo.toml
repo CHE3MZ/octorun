@@ -1,4 +1,6 @@
 [package]
+authors = ["CHE3MZ"]
+repository = "https://github.com/CHE3MZ/octorun"
 name = "octorun"
 version = "0.1.0"
 edition = "2024"
