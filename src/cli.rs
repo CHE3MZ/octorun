@@ -1,0 +1,152 @@
+//! Command-line interface definitions for the `octorun` binary.
+
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand};
+
+/// Create disposable GitHub Actions runners.
+#[derive(Debug, Parser)]
+#[command(name = "octorun", version, about, long_about = None)]
+pub struct Cli {
+    /// Show verbose logging text.
+    #[arg(short, long, global = true)]
+    pub verbose: bool,
+
+    /// Custom name for the runner (defaults to "actions-runner").
+    #[arg(
+        short,
+        long,
+        global = true,
+        value_name = "NAME",
+        default_value = "actions-runner"
+    )]
+    pub name: String,
+
+    /// Repository to use <OWNER/REPO> (defaults to the current repository).
+    #[arg(short, long, global = true, value_name = "OWNER/REPO")]
+    pub repo: Option<String>,
+
+    /// Change the directory to run in (defaults to the current directory).
+    #[arg(short, long, global = true, value_name = "DIR")]
+    pub dir: Option<PathBuf>,
+
+    /// The subcommand to execute.
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+/// The available octorun subcommands.
+#[derive(Debug, Subcommand)]
+pub enum Command {
+    /// Create a new runner.
+    Create(CreateArgs),
+
+    /// Delete a runner.
+    Remove(RemoveArgs),
+
+    /// Start a preconfigured runner.
+    Start,
+
+    /// Stop a preconfigured runner.
+    Stop,
+}
+
+/// Options accepted by `octorun create`.
+#[derive(Debug, Clone, Args)]
+pub struct CreateArgs {
+    /// Overwrite any existing runner with the same name.
+    #[arg(short, long)]
+    pub overwrite: bool,
+
+    /// Set the runner location manually instead of downloading one.
+    #[arg(short, long, value_name = "LOCATION")]
+    pub location: Option<String>,
+
+    /// Runner group to add the runner to (defaults to 'Default').
+    #[arg(short, long, value_name = "GROUP")]
+    pub group: Option<String>,
+
+    /// Comma separated list of labels to add to the runner.
+    #[arg(long, value_name = "LABELS")]
+    pub labels: Option<String>,
+
+    /// Add the runner at the Enterprise level with the enterprise's name.
+    #[arg(long, value_name = "ENTERPRISE")]
+    pub enterprise: Option<String>,
+
+    /// Add the runner at the Organization level with the organization's name.
+    #[arg(long, value_name = "ORG")]
+    pub org: Option<String>,
+}
+
+/// Options accepted by `octorun remove`.
+#[derive(Debug, Clone, Args)]
+pub struct RemoveArgs {
+    /// Remove the runner at the Enterprise level with the enterprise's name.
+    #[arg(long, value_name = "ENTERPRISE")]
+    pub enterprise: Option<String>,
+
+    /// Remove the runner at the Organization level with the organization's name.
+    #[arg(long, value_name = "ORG")]
+    pub org: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cli, Command};
+    use clap::Parser;
+
+    #[test]
+    fn global_defaults() {
+        let cli = Cli::try_parse_from(["octorun", "start"]).unwrap();
+        assert_eq!(cli.name, "actions-runner");
+        assert!(cli.repo.is_none());
+        assert!(cli.dir.is_none());
+        assert!(!cli.verbose);
+    }
+
+    #[test]
+    fn global_options_are_accepted_before_subcommand() {
+        let cli =
+            Cli::try_parse_from(["octorun", "-v", "-n", "fast", "-r", "acme/app", "stop"]).unwrap();
+        assert!(cli.verbose);
+        assert_eq!(cli.name, "fast");
+        assert_eq!(cli.repo.as_deref(), Some("acme/app"));
+        assert!(matches!(cli.command, Command::Stop));
+    }
+
+    #[test]
+    fn create_flags_parse() {
+        let cli = Cli::try_parse_from([
+            "octorun",
+            "create",
+            "-o",
+            "-l",
+            "https://example.com/runner.tar.gz",
+            "-g",
+            "fast",
+            "--labels",
+            "self-hosted,linux",
+            "--org",
+            "acme",
+        ])
+        .unwrap();
+        let Command::Create(args) = cli.command else {
+            panic!("expected create subcommand");
+        };
+        assert!(args.overwrite);
+        assert_eq!(
+            args.location.as_deref(),
+            Some("https://example.com/runner.tar.gz")
+        );
+        assert_eq!(args.group.as_deref(), Some("fast"));
+        assert_eq!(args.labels.as_deref(), Some("self-hosted,linux"));
+        assert_eq!(args.org.as_deref(), Some("acme"));
+        assert!(args.enterprise.is_none());
+    }
+
+    #[test]
+    fn subcommand_is_required() {
+        assert!(Cli::try_parse_from(["octorun"]).is_err());
+    }
+}
