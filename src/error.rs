@@ -24,6 +24,10 @@ pub enum Error {
     #[error("unsupported platform: {0}")]
     UnsupportedPlatform(String),
 
+    /// The runner archive format is not supported.
+    #[error("unsupported archive format: {0}")]
+    UnsupportedArchive(String),
+
     /// No GitHub token could be discovered.
     #[error("no GitHub token found: set GH_TOKEN or GITHUB_TOKEN, or run `gh auth login`")]
     MissingToken,
