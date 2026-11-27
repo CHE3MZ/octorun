@@ -24,7 +24,7 @@ class Octorun < Formula
   license "MIT"
 
   livecheck do
-    url "https://github.com/CHE3MZ/octorun/releases/latest"
+    url :stable
     strategy :github_latest
   end
 
@@ -53,7 +53,7 @@ class Octorun < Formula
   end
 
   test do
-    system "#{bin}/octorun", "--version"
+    system bin/"octorun", "--version"
   end
 end
 EOF

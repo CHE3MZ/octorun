@@ -171,6 +171,7 @@ jobs:
           tap_dir="$(brew --repository)/Library/Taps/octorun/homebrew-test"
           mkdir -p "$tap_dir/Formula"
           cp "$RUNNER_TEMP/octorun.rb" "$tap_dir/Formula/octorun.rb"
+          brew trust octorun/test
           brew audit --strict --online octorun/test/octorun
           brew install octorun/test/octorun
           brew test octorun/test/octorun
