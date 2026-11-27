@@ -1,9 +1,11 @@
 //! A small GitHub REST client for runner operations.
 
+use std::thread;
 use std::time::Duration;
 
-use reqwest::blocking::{Client as HttpClient, Response};
-use reqwest::header::{ACCEPT, AUTHORIZATION};
+use reqwest::StatusCode;
+use reqwest::blocking::{Client as HttpClient, RequestBuilder, Response};
+use reqwest::header::{ACCEPT, AUTHORIZATION, RETRY_AFTER};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
@@ -11,6 +13,8 @@ use crate::error::{Error, Result};
 
 const API_VERSION: &str = "2022-11-28";
 const ACCEPT_JSON: &str = "application/vnd.github+json";
+const MAX_ATTEMPTS: u32 = 3;
+const BACKOFF: Duration = Duration::from_millis(200);
 
 /// The scope a runner is registered in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,6 +66,20 @@ pub struct Release {
     /// The release tag, e.g. `v2.300.0`.
     #[serde(rename = "tag_name")]
     pub tag_name: String,
+    /// Assets attached to the release.
+    #[serde(default)]
+    pub assets: Vec<ReleaseAsset>,
+}
+
+/// A release asset, including its GitHub-published digest.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReleaseAsset {
+    /// Asset file name.
+    pub name: String,
+    /// Digest in the form `sha256:<hex>`, when GitHub provides one.
+    pub digest: Option<String>,
+    /// URL used to download the asset.
+    pub browser_download_url: String,
 }
 
 impl Release {
@@ -70,39 +88,69 @@ impl Release {
     pub fn version(&self) -> &str {
         self.tag_name.trim_start_matches('v')
     }
+
+    /// Find an asset by file name.
+    #[must_use]
+    pub fn asset(&self, name: &str) -> Option<&ReleaseAsset> {
+        self.assets.iter().find(|asset| asset.name == name)
+    }
 }
 
 /// GitHub REST client used for runner operations.
 pub struct Client {
     http: HttpClient,
     base_url: String,
-    token: String,
+    tokens: Vec<String>,
 }
 
 impl Client {
-    /// Create a client for `host`.
+    /// Create a client for `host` with a single token.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be built.
+    pub fn new(host: &str, token: impl Into<String>) -> Result<Self> {
+        Self::with_tokens(host, vec![token.into()])
+    }
+
+    /// Create a client for `host` with tokens to try in order.
     ///
     /// `github.com` uses the public API. Any other host is treated as a GitHub
     /// Enterprise instance served from `/api/v3`.
     ///
     /// # Errors
     ///
-    /// Returns an error if the HTTP client cannot be built.
-    pub fn new(host: &str, token: impl Into<String>) -> Result<Self> {
+    /// Returns [`Error::MissingToken`] for an empty token list, or an error if
+    /// the HTTP client cannot be built.
+    pub fn with_tokens(host: &str, tokens: Vec<String>) -> Result<Self> {
         let base_url = if host == "github.com" {
             "https://api.github.com".to_owned()
         } else {
             format!("https://{host}/api/v3")
         };
-        Self::with_base_url(base_url, token)
+        Self::with_base_urls(base_url, tokens)
     }
 
-    /// Create a client with an explicit API base URL.
+    /// Create a client with an explicit API base URL and a single token.
     ///
     /// # Errors
     ///
     /// Returns an error if the HTTP client cannot be built.
     pub fn with_base_url(base_url: impl Into<String>, token: impl Into<String>) -> Result<Self> {
+        Self::with_base_urls(base_url, vec![token.into()])
+    }
+
+    /// Create a client with an explicit API base URL and tokens to try in order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::MissingToken`] for an empty token list, or an error if
+    /// the HTTP client cannot be built.
+    pub fn with_base_urls(base_url: impl Into<String>, tokens: Vec<String>) -> Result<Self> {
+        if tokens.is_empty() {
+            return Err(Error::MissingToken);
+        }
+
         let http = HttpClient::builder()
             .user_agent(concat!("octorun/", env!("CARGO_PKG_VERSION")))
             .timeout(Duration::from_secs(30))
@@ -111,7 +159,7 @@ impl Client {
         Ok(Self {
             http,
             base_url: base_url.into().trim_end_matches('/').to_owned(),
-            token: token.into(),
+            tokens,
         })
     }
 
@@ -123,8 +171,7 @@ impl Client {
     pub fn latest_runner_release(&self) -> Result<Release> {
         let base = &self.base_url;
         let url = format!("{base}/repos/actions/runner/releases/latest");
-        let response = self.authorize(self.http.get(url)).send()?;
-        decode(response)
+        self.send(|token| Self::authorized(self.http.get(url.clone()), token))
     }
 
     /// Request a runner token for `scope`.
@@ -143,12 +190,10 @@ impl Client {
         let scope = scope.path();
         let kind = kind.path();
         let url = format!("{base}/{scope}/actions/runners/{kind}");
+        let body = serde_json::json!({});
 
-        let response = self
-            .authorize(self.http.post(url))
-            .json(&serde_json::json!({}))
-            .send()?;
-        let Token { token } = decode(response)?;
+        let Token { token } =
+            self.send(|token| Self::authorized(self.http.post(url.clone()).json(&body), token))?;
 
         if token.is_empty() {
             return Err(Error::Api(
@@ -158,16 +203,80 @@ impl Client {
         Ok(token)
     }
 
-    fn authorize(
-        &self,
-        request: reqwest::blocking::RequestBuilder,
-    ) -> reqwest::blocking::RequestBuilder {
-        let token = &self.token;
+    fn send<T: DeserializeOwned>(&self, build: impl Fn(&str) -> RequestBuilder) -> Result<T> {
+        let mut last_unauthorized = None;
+
+        for token in &self.tokens {
+            let response = Self::send_with_retries(|| build(token))?;
+            if response.status() == StatusCode::UNAUTHORIZED {
+                tracing::debug!("GitHub rejected a token, trying the next one");
+                last_unauthorized = Some(response);
+                continue;
+            }
+            return decode(response);
+        }
+
+        match last_unauthorized {
+            Some(response) => decode(response),
+            None => Err(Error::MissingToken),
+        }
+    }
+
+    fn send_with_retries(build: impl Fn() -> RequestBuilder) -> Result<Response> {
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            match build().send() {
+                Ok(response) => {
+                    if is_retryable_status(response.status()) && attempt < MAX_ATTEMPTS {
+                        let delay = retry_delay(&response, attempt);
+                        tracing::debug!("retrying GitHub request after {delay:?}");
+                        drop(response);
+                        thread::sleep(delay);
+                    } else {
+                        return Ok(response);
+                    }
+                }
+                Err(error) if retryable_transport(&error) && attempt < MAX_ATTEMPTS => {
+                    let delay = backoff(attempt);
+                    tracing::debug!("retrying GitHub request after {delay:?}: {error}");
+                    thread::sleep(delay);
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+
+    fn authorized(request: RequestBuilder, token: &str) -> RequestBuilder {
         request
             .header(ACCEPT, ACCEPT_JSON)
             .header(AUTHORIZATION, format!("Bearer {token}"))
             .header("X-GitHub-Api-Version", API_VERSION)
     }
+}
+
+fn is_retryable_status(status: StatusCode) -> bool {
+    status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
+}
+
+fn retryable_transport(error: &reqwest::Error) -> bool {
+    error.is_timeout() || error.is_connect() || error.is_request()
+}
+
+fn backoff(attempt: u32) -> Duration {
+    BACKOFF.saturating_mul(attempt)
+}
+
+fn retry_delay(response: &Response, attempt: u32) -> Duration {
+    response
+        .headers()
+        .get(RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map_or_else(
+            || backoff(attempt),
+            |seconds| Duration::from_secs(seconds.min(5)),
+        )
 }
 
 fn decode<T: DeserializeOwned>(response: Response) -> Result<T> {
@@ -189,28 +298,35 @@ mod tests {
     use std::net::{TcpListener, TcpStream};
     use std::thread::JoinHandle;
 
-    use super::{Client, Scope, TokenKind};
+    use super::{Client, Release, Scope, TokenKind};
     use crate::error::Error;
 
-    fn serve_once(status: &str, body: &str) -> (String, JoinHandle<String>) {
+    fn serve_sequence(responses: Vec<(&'static str, String)>) -> (String, JoinHandle<Vec<String>>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
-        let status = status.to_owned();
-        let body = body.to_owned();
 
         let handle = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let request = read_request(&mut stream);
-            let response = format!(
-                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
-            stream.write_all(response.as_bytes()).unwrap();
-            stream.flush().unwrap();
-            String::from_utf8_lossy(&request).into_owned()
+            let mut requests = Vec::new();
+            for (status, body) in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                let request = read_request(&mut stream);
+                requests.push(String::from_utf8_lossy(&request).into_owned());
+
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+                stream.flush().unwrap();
+            }
+            requests
         });
 
         (format!("http://{address}"), handle)
+    }
+
+    fn serve_once(status: &'static str, body: &str) -> (String, JoinHandle<Vec<String>>) {
+        serve_sequence(vec![(status, body.to_owned())])
     }
 
     fn read_request(stream: &mut TcpStream) -> Vec<u8> {
@@ -247,7 +363,8 @@ mod tests {
         let client = Client::with_base_url(base, "secret").unwrap();
 
         let release = client.latest_runner_release().unwrap();
-        let request = server.join().unwrap();
+        let requests = server.join().unwrap();
+        let request = &requests[0];
 
         assert_eq!(release.version(), "2.300.0");
         assert!(request.starts_with("GET /repos/actions/runner/releases/latest "));
@@ -270,7 +387,8 @@ mod tests {
         let token = client
             .runner_token(&scope, TokenKind::Registration)
             .unwrap();
-        let request = server.join().unwrap();
+        let requests = server.join().unwrap();
+        let request = &requests[0];
 
         assert_eq!(token, "runner-token");
         assert!(request.starts_with("POST /repos/acme/app/actions/runners/registration-token "));
@@ -290,6 +408,63 @@ mod tests {
             }
             other => panic!("expected api error, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn retries_server_errors() {
+        let (base, server) = serve_sequence(vec![
+            ("500 Internal Server Error", "try again".to_owned()),
+            ("200 OK", r#"{"tag_name":"v2.300.0"}"#.to_owned()),
+        ]);
+        let client = Client::with_base_url(base, "secret").unwrap();
+
+        let release = client.latest_runner_release().unwrap();
+        let requests = server.join().unwrap();
+
+        assert_eq!(release.version(), "2.300.0");
+        assert_eq!(requests.len(), 2);
+    }
+
+    #[test]
+    fn falls_back_to_the_next_token() {
+        let (base, server) = serve_sequence(vec![
+            (
+                "401 Unauthorized",
+                r#"{"message":"bad credentials"}"#.to_owned(),
+            ),
+            ("200 OK", r#"{"tag_name":"v2.300.0"}"#.to_owned()),
+        ]);
+        let client =
+            Client::with_base_urls(base, vec!["bad".to_owned(), "good".to_owned()]).unwrap();
+
+        let release = client.latest_runner_release().unwrap();
+        let requests = server.join().unwrap();
+
+        assert_eq!(release.version(), "2.300.0");
+        assert!(
+            requests[0]
+                .to_ascii_lowercase()
+                .contains("authorization: bearer bad")
+        );
+        assert!(
+            requests[1]
+                .to_ascii_lowercase()
+                .contains("authorization: bearer good")
+        );
+    }
+
+    #[test]
+    fn finds_release_assets() {
+        let release: Release = serde_json::from_str(
+            r#"{"tag_name":"v1","assets":[{"name":"runner.zip","digest":"sha256:abc","browser_download_url":"https://example.com/runner.zip"}]}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            release.asset("runner.zip").unwrap().digest.as_deref(),
+            Some("sha256:abc")
+        );
+        assert!(release.asset("missing.zip").is_none());
     }
 
     #[test]

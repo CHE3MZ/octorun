@@ -2,36 +2,48 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 
 use crate::error::{Error, Result};
 use crate::github::Client;
-use crate::runner::{RunnerPlatform, download, extract};
+use crate::runner::{RunnerPlatform, download_with_cancel, extract, sha256_file};
 
 /// Install runner files into `dest`.
 ///
 /// `location` may be an archive URL, a local archive, or a directory. When it
-/// is `None`, the latest `platform` release is resolved through `api`.
+/// is `None`, the latest `platform` release is resolved through `api` and its
+/// published digest is verified.
 ///
 /// # Errors
 ///
 /// Returns an error if the release cannot be resolved, the download fails, the
-/// archive cannot be extracted, or the source is missing.
+/// archive does not match its digest, the archive cannot be extracted, or the
+/// source is missing.
 pub fn install(
     api: &Client,
     location: Option<&str>,
     dest: &Path,
     platform: RunnerPlatform,
+    cancel: Option<&AtomicBool>,
 ) -> Result<()> {
     match location {
-        Some(location) if is_url(location) => install_from_url(location, dest),
+        Some(location) if is_url(location) => install_from_url(location, dest, None, cancel),
         Some(location) => install_from_path(Path::new(location), dest),
         None => {
             let release = api.latest_runner_release()?;
             let archive = platform.archive_name(release.version());
-            let tag = &release.tag_name;
-            let url =
-                format!("https://github.com/actions/runner/releases/download/{tag}/{archive}");
-            install_from_url(&url, dest)
+
+            let (url, digest) = if let Some(asset) = release.asset(&archive) {
+                (asset.browser_download_url.clone(), asset.digest.clone())
+            } else {
+                let tag = &release.tag_name;
+                (
+                    format!("https://github.com/actions/runner/releases/download/{tag}/{archive}"),
+                    None,
+                )
+            };
+
+            install_from_url(&url, dest, digest.as_deref(), cancel)
         }
     }
 }
@@ -49,7 +61,12 @@ fn install_from_path(source: &Path, dest: &Path) -> Result<()> {
     }
 }
 
-fn install_from_url(url: &str, dest: &Path) -> Result<()> {
+fn install_from_url(
+    url: &str,
+    dest: &Path,
+    digest: Option<&str>,
+    cancel: Option<&AtomicBool>,
+) -> Result<()> {
     if let Some(parent) = dest.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -59,8 +76,14 @@ fn install_from_url(url: &str, dest: &Path) -> Result<()> {
     let file_name = archive_file_name(url);
     let archive_path = dest.with_file_name(format!(".octorun-{file_name}"));
 
-    download(url, &archive_path)?;
-    let result = extract(&archive_path, dest);
+    download_with_cancel(url, &archive_path, cancel)?;
+
+    let result = (|| {
+        if let Some(digest) = digest {
+            verify_digest(&archive_path, digest)?;
+        }
+        extract(&archive_path, dest)
+    })();
 
     if let Err(error) = fs::remove_file(&archive_path) {
         tracing::warn!(
@@ -70,6 +93,22 @@ fn install_from_url(url: &str, dest: &Path) -> Result<()> {
     }
 
     result
+}
+
+fn verify_digest(path: &Path, digest: &str) -> Result<()> {
+    let Some(expected) = digest.strip_prefix("sha256:") else {
+        tracing::warn!("unsupported digest `{digest}`, skipping verification");
+        return Ok(());
+    };
+
+    let actual = sha256_file(path)?;
+    if !actual.eq_ignore_ascii_case(expected) {
+        return Err(Error::Checksum(format!(
+            "expected sha256 {expected}, got {actual}"
+        )));
+    }
+
+    Ok(())
 }
 
 fn copy_dir(source: &Path, dest: &Path) -> Result<()> {
@@ -105,7 +144,7 @@ fn archive_file_name(url: &str) -> &str {
 mod tests {
     use std::fs;
 
-    use super::{archive_file_name, copy_dir, is_url};
+    use super::{archive_file_name, copy_dir, is_url, verify_digest};
 
     #[test]
     fn recognizes_urls() {
@@ -147,5 +186,19 @@ mod tests {
             fs::read(dest.path().join("bin").join("Runner.Listener")).unwrap(),
             b"bin"
         );
+    }
+
+    #[test]
+    fn verifies_sha256_digests() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data");
+        fs::write(&path, b"abc").unwrap();
+
+        verify_digest(
+            &path,
+            "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        )
+        .unwrap();
+        assert!(verify_digest(&path, "sha256:deadbeef").is_err());
     }
 }

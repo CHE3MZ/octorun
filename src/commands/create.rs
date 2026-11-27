@@ -1,12 +1,13 @@
 //! `octorun create` — create a new runner.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::{runner_dir, runner_url, scope_for, validate_name};
 use crate::cli::{Cli, CreateArgs};
 use crate::error::{Error, Result};
-use crate::github::{Client, Repository, Scope, TokenKind, resolve_token};
+use crate::github::{Client, Repository, Scope, TokenKind, resolve_tokens};
 use crate::runner::RunnerPlatform;
 use crate::runner::config::{self, Options};
 use crate::runner::install;
@@ -25,7 +26,7 @@ pub(crate) struct Context {
 /// Returns an error if the repository, target, or token cannot be resolved, the
 /// runner files cannot be installed, or the configuration script fails.
 pub fn run(cli: &Cli, args: &CreateArgs) -> Result<()> {
-    let context = prepare(cli, args, false)?;
+    let context = prepare(cli, args, false, None, false)?;
     tracing::info!(
         "runner `{}` is ready at {}",
         cli.name,
@@ -36,12 +37,23 @@ pub fn run(cli: &Cli, args: &CreateArgs) -> Result<()> {
 
 /// Install and configure a runner, returning the details needed to manage it.
 ///
+/// `cancel` lets a caller stop long downloads, and `cleanup_on_error` removes
+/// the runner directory and registration when setup fails after registration.
+///
 /// # Errors
 ///
-/// Returns an error if the repository, target, or token cannot be resolved, the
-/// runner files cannot be installed, or the configuration script fails.
-pub(crate) fn prepare(cli: &Cli, args: &CreateArgs, ephemeral: bool) -> Result<Context> {
+/// Returns [`Error::Cancelled`] when cancellation is requested, or an error if
+/// the repository, target, or token cannot be resolved, the runner files cannot
+/// be installed, or the configuration script fails.
+pub(crate) fn prepare(
+    cli: &Cli,
+    args: &CreateArgs,
+    ephemeral: bool,
+    cancel: Option<&AtomicBool>,
+    cleanup_on_error: bool,
+) -> Result<Context> {
     validate_name(&cli.name)?;
+    check_cancel(cancel)?;
 
     let runner_dir = runner_dir(cli);
     if let Some(parent) = runner_dir.parent() {
@@ -72,12 +84,21 @@ pub(crate) fn prepare(cli: &Cli, args: &CreateArgs, ephemeral: bool) -> Result<C
         None => RunnerPlatform::detect()?,
     };
 
-    let token = resolve_token(host)?;
-    let api = Client::new(host, token)?;
+    check_cancel(cancel)?;
+    let tokens = resolve_tokens(host)?;
+    let api = Client::with_tokens(host, tokens)?;
+    install::install(
+        &api,
+        args.location.as_deref(),
+        &runner_dir,
+        platform,
+        cancel,
+    )?;
 
-    install::install(&api, args.location.as_deref(), &runner_dir, platform)?;
-
+    check_cancel(cancel)?;
     let registration_token = api.runner_token(&scope, TokenKind::Registration)?;
+    check_cancel(cancel)?;
+
     let options = Options {
         url,
         token: registration_token,
@@ -87,11 +108,49 @@ pub(crate) fn prepare(cli: &Cli, args: &CreateArgs, ephemeral: bool) -> Result<C
         group: args.group.clone(),
         ephemeral,
     };
-    config::configure(&runner_dir, &options)?;
+
+    if let Err(error) = config::configure(&runner_dir, &options) {
+        if cleanup_on_error {
+            cleanup_partial(&runner_dir, host, &scope);
+        }
+        return Err(error);
+    }
+
+    if let Err(error) = check_cancel(cancel) {
+        if cleanup_on_error {
+            cleanup_partial(&runner_dir, host, &scope);
+        }
+        return Err(error);
+    }
 
     Ok(Context {
         runner_dir,
         host: host.to_owned(),
         scope,
     })
+}
+
+fn check_cancel(cancel: Option<&AtomicBool>) -> Result<()> {
+    if cancel.is_some_and(|flag| flag.load(Ordering::SeqCst)) {
+        Err(Error::Cancelled)
+    } else {
+        Ok(())
+    }
+}
+
+fn cleanup_partial(dir: &Path, host: &str, scope: &Scope) {
+    if dir.join(".runner").exists()
+        && let Err(error) = super::deregister(dir, host, scope)
+    {
+        tracing::warn!("could not deregister runner: {error}");
+    }
+
+    if let Err(error) = fs::remove_dir_all(dir)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::warn!(
+            "could not remove runner directory {}: {error}",
+            dir.display()
+        );
+    }
 }

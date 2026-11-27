@@ -40,6 +40,14 @@ pub enum Error {
     #[error("configuration error: {0}")]
     Config(String),
 
+    /// The operation was cancelled before it finished.
+    #[error("operation cancelled")]
+    Cancelled,
+
+    /// A downloaded file did not match its expected checksum.
+    #[error("checksum mismatch: {0}")]
+    Checksum(String),
+
     /// An external command failed.
     #[error("command failed: {0}")]
     Command(String),
