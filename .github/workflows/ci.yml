@@ -157,7 +157,7 @@ jobs:
           persist-credentials: false
       - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
         with:
-          version: 1.17.1
+          version: 1.7.12
           shellcheck: false
           pyflakes: false
       - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
