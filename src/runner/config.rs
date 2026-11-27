@@ -18,8 +18,6 @@ pub struct Options {
     pub replace: bool,
     /// Comma separated list of extra labels.
     pub labels: Option<String>,
-    /// Runner group.
-    pub group: Option<String>,
     /// Run a single job, then deregister the runner.
     pub ephemeral: bool,
 }
@@ -46,10 +44,6 @@ pub fn config_args(options: &Options) -> Vec<String> {
     if let Some(labels) = &options.labels {
         args.push("--labels".to_owned());
         args.push(labels.clone());
-    }
-    if let Some(group) = &options.group {
-        args.push("--runnergroup".to_owned());
-        args.push(group.clone());
     }
 
     args
@@ -124,7 +118,6 @@ mod tests {
             name: "actions-runner".to_owned(),
             replace: false,
             labels: None,
-            group: None,
             ephemeral: false,
         }
     }
@@ -150,7 +143,6 @@ mod tests {
         let options = Options {
             replace: true,
             labels: Some("self-hosted,linux".to_owned()),
-            group: Some("fast".to_owned()),
             ..options()
         };
 
@@ -167,8 +159,6 @@ mod tests {
                 "--replace",
                 "--labels",
                 "self-hosted,linux",
-                "--runnergroup",
-                "fast",
             ]
         );
     }

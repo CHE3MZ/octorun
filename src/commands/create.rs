@@ -106,7 +106,6 @@ pub(crate) fn prepare(
         name: cli.name.clone(),
         replace: args.overwrite,
         labels: args.labels.clone(),
-        group: args.group.clone(),
         ephemeral,
     };
 

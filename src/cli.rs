@@ -11,7 +11,7 @@ use crate::runner::RunnerPlatform;
 #[command(name = "octorun", version, about, long_about = None)]
 pub struct Cli {
     /// Show verbose logging text.
-    #[arg(short, long, global = true)]
+    #[arg(short, long, global = true, display_order = 100)]
     pub verbose: bool,
 
     /// Custom name for the runner (defaults to "actions-runner").
@@ -21,20 +21,27 @@ pub struct Cli {
         global = true,
         value_name = "NAME",
         default_value = "actions-runner",
-        hide_default_value = true
+        hide_default_value = true,
+        display_order = 110
     )]
     pub name: String,
 
     /// Change the directory to run in (defaults to the current directory).
-    #[arg(short, long, global = true, value_name = "DIR")]
+    #[arg(short, long, global = true, value_name = "DIR", display_order = 120)]
     pub dir: Option<PathBuf>,
 
     /// Repository to use <OWNER/REPO> (defaults to the current repository).
-    #[arg(short, long, global = true, value_name = "OWNER/REPO")]
+    #[arg(
+        short,
+        long,
+        global = true,
+        value_name = "OWNER/REPO",
+        display_order = 130
+    )]
     pub repo: Option<String>,
 
     /// GitHub API token (defaults to the token found automatically).
-    #[arg(short, long, global = true, value_name = "TOKEN")]
+    #[arg(short, long, global = true, value_name = "TOKEN", display_order = 140)]
     pub token: Option<String>,
 
     /// The subcommand to execute.
@@ -65,11 +72,11 @@ pub enum Command {
 #[derive(Debug, Clone, Args)]
 pub struct CreateArgs {
     /// Overwrite any existing runner with the same name.
-    #[arg(short, long)]
+    #[arg(short, long, display_order = 10)]
     pub overwrite: bool,
 
     /// Set the runner location manually instead of downloading one.
-    #[arg(short, long, value_name = "LOCATION")]
+    #[arg(short, long, value_name = "LOCATION", display_order = 20)]
     pub location: Option<String>,
 
     /// Set the runner platform (defaults to auto detected system architecture).
@@ -79,24 +86,21 @@ pub struct CreateArgs {
         value_enum,
         value_name = "PLATFORM",
         hide_possible_values = true,
+        display_order = 30,
         long_help = "Set the runner platform (defaults to auto detected system architecture).\n\nAvailable values:\n  - windows-amd64\n  - windows-arm64\n  - macos-amd64\n  - macos-arm64\n  - linux-amd64\n  - linux-arm64"
     )]
     pub platform: Option<RunnerPlatform>,
 
-    /// Runner group to add the runner to (defaults to 'Default').
-    #[arg(short, long, value_name = "GROUP")]
-    pub group: Option<String>,
-
     /// Comma separated list of labels to add to the runner.
-    #[arg(long, value_name = "LABELS")]
+    #[arg(long, value_name = "LABELS", display_order = 40)]
     pub labels: Option<String>,
 
     /// Add the runner at the Enterprise level with the enterprise's name.
-    #[arg(long, value_name = "ENTERPRISE")]
+    #[arg(long, value_name = "ENTERPRISE", display_order = 50)]
     pub enterprise: Option<String>,
 
     /// Add the runner at the Organization level with the organization's name.
-    #[arg(long, value_name = "ORG")]
+    #[arg(long, value_name = "ORG", display_order = 60)]
     pub org: Option<String>,
 }
 
@@ -104,11 +108,11 @@ pub struct CreateArgs {
 #[derive(Debug, Clone, Args)]
 pub struct RemoveArgs {
     /// Remove the runner at the Enterprise level with the enterprise's name.
-    #[arg(long, value_name = "ENTERPRISE")]
+    #[arg(long, value_name = "ENTERPRISE", display_order = 10)]
     pub enterprise: Option<String>,
 
     /// Remove the runner at the Organization level with the organization's name.
-    #[arg(long, value_name = "ORG")]
+    #[arg(long, value_name = "ORG", display_order = 20)]
     pub org: Option<String>,
 }
 
@@ -116,7 +120,7 @@ pub struct RemoveArgs {
 #[derive(Debug, Clone, Args)]
 pub struct TempArgs {
     /// Run a single job, then remove the runner.
-    #[arg(long)]
+    #[arg(long, display_order = 5)]
     pub ephemeral: bool,
 
     /// Options used to create the runner.
@@ -163,8 +167,6 @@ mod tests {
             "https://example.com/runner.tar.gz",
             "-p",
             "linux-arm64",
-            "-g",
-            "fast",
             "--labels",
             "self-hosted,linux",
             "--org",
@@ -180,7 +182,6 @@ mod tests {
             Some("https://example.com/runner.tar.gz")
         );
         assert_eq!(args.platform, Some(RunnerPlatform::LinuxArm64));
-        assert_eq!(args.group.as_deref(), Some("fast"));
         assert_eq!(args.labels.as_deref(), Some("self-hosted,linux"));
         assert_eq!(args.org.as_deref(), Some("acme"));
         assert!(args.enterprise.is_none());
@@ -197,8 +198,6 @@ mod tests {
             "octorun",
             "temp",
             "--ephemeral",
-            "-g",
-            "fast",
             "-l",
             "https://example.com/runner.zip",
             "-p",
@@ -211,7 +210,6 @@ mod tests {
         };
         assert!(args.ephemeral);
         assert_eq!(args.create.platform, Some(RunnerPlatform::MacosArm64));
-        assert_eq!(args.create.group.as_deref(), Some("fast"));
         assert_eq!(
             args.create.location.as_deref(),
             Some("https://example.com/runner.zip")
