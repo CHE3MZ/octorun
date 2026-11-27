@@ -38,7 +38,7 @@ fn help_lists_dir_before_repo() {
 }
 
 #[test]
-fn help_uses_accent_color_when_forced() {
+fn help_uses_styled_colors_when_forced() {
     let mut cmd = Command::cargo_bin("octorun").unwrap();
     let output = cmd
         .env("CLICOLOR_FORCE", "1")
@@ -49,6 +49,7 @@ fn help_uses_accent_color_when_forced() {
     let text = String::from_utf8(output.stdout).unwrap();
 
     assert!(text.contains("38;2;41;184;219"), "accent blue is missing");
+    assert!(text.contains("38;2;35;209;139"), "heading green is missing");
     assert!(text.contains("\u{1b}[1m"), "bold escape is missing");
 }
 

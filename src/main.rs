@@ -1,11 +1,12 @@
 use std::process::ExitCode;
 
-use clap::builder::styling::{AnsiColor, RgbColor, Styles};
+use clap::builder::styling::{RgbColor, Styles};
 use clap::{CommandFactory, FromArgMatches};
 use octorun::cli::Cli;
 use octorun::commands;
 
 const ACCENT_BLUE: RgbColor = RgbColor(41, 184, 219);
+const HEADING_GREEN: RgbColor = RgbColor(35, 209, 139);
 
 fn main() -> ExitCode {
     let matches = Cli::command().styles(styles()).get_matches();
@@ -27,8 +28,8 @@ fn main() -> ExitCode {
 
 fn styles() -> Styles {
     Styles::styled()
-        .header(AnsiColor::White.on_default().bold())
-        .usage(AnsiColor::White.on_default().bold())
+        .header(HEADING_GREEN.on_default().bold())
+        .usage(HEADING_GREEN.on_default().bold())
         .literal(ACCENT_BLUE.on_default().bold())
         .placeholder(ACCENT_BLUE.on_default())
 }
@@ -47,8 +48,8 @@ fn init_tracing(verbose: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{ACCENT_BLUE, styles};
-    use clap::builder::styling::{AnsiColor, Color};
+    use super::{ACCENT_BLUE, HEADING_GREEN, styles};
+    use clap::builder::styling::Color;
 
     #[test]
     fn accent_and_heading_colors_are_set() {
@@ -64,7 +65,11 @@ mod tests {
         );
         assert_eq!(
             (*styles.get_header()).get_fg_color(),
-            Some(Color::Ansi(AnsiColor::White))
+            Some(Color::Rgb(HEADING_GREEN))
+        );
+        assert_eq!(
+            (*styles.get_usage()).get_fg_color(),
+            Some(Color::Rgb(HEADING_GREEN))
         );
     }
 }
