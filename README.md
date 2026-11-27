@@ -12,7 +12,7 @@
 
 <img src="assets/platforms.png" alt="platforms" width="376" />
 
-### octorun works on all the platforms that the [github actions self hosted runner supports!](https://docs.github.com/en/actions/reference/runners/self-hosted-runners)
+### octorun works on all the platforms that the [GitHub Actions self hosted runner supports](https://docs.github.com/en/actions/reference/runners/self-hosted-runners)!
 
 ## Package managers
 
@@ -21,8 +21,6 @@
 ```sh
 brew install CHE3MZ/tools/octorun
 ```
-
-## Cargo
 
 ### Cargo install
 
@@ -66,7 +64,7 @@ then run the `start` command to get it up and running:
 octorun start
 ```
 
-to stop the runner, ctrl+C the current runner terminal session or run the `stop` command:
+to stop the runner, Ctrl+C the current runner terminal session or run the `stop` command:
 
 ```sh
 octorun stop
@@ -92,7 +90,7 @@ octorun help <COMMAND>
 
 # Development
 
-To get started, install [go-task](https://taskfile.dev/) (A.K.A [taskfile](https://taskfile.dev/)), you will need it to run a lot of the local CI jobs.
+To get started, install [go-task](https://taskfile.dev/) (a.k.a [taskfile](https://taskfile.dev/)), you will need it to run a lot of the local CI jobs.
 
 <img src="assets/actions.png" alt="notice" width="64" />
 
@@ -114,4 +112,4 @@ task ops
 
 Huge shoutout to [Dedac](https://github.com/Dedac/) for the project https://github.com/Dedac/gh-runner which this project is based on.
 
-this project is licensed under the [MIT License.](LICENSE)
+this project is licensed under the [MIT License](LICENSE).
