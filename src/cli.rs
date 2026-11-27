@@ -69,14 +69,13 @@ pub struct CreateArgs {
     pub location: Option<String>,
 
     /// Set the runner platform (defaults to auto detected system architecture).
-    /// Available values: windows-amd64, windows-arm64, macos-amd64, macos-arm64,
-    /// linux-amd64, linux-arm64.
     #[arg(
         short,
         long,
         value_enum,
         value_name = "PLATFORM",
-        hide_possible_values = true
+        hide_possible_values = true,
+        long_help = "Set the runner platform (defaults to auto detected system architecture).\n\nAvailable values:\n  - windows-amd64\n  - windows-arm64\n  - macos-amd64\n  - macos-arm64\n  - linux-amd64\n  - linux-arm64"
     )]
     pub platform: Option<RunnerPlatform>,
 
