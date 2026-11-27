@@ -45,6 +45,10 @@ tasks:
     desc: Build all targets and features
     cmds:
       - cmd: cargo build --all-targets --all-features
+  build-release:
+    desc: Build in release mode
+    cmds:
+      - cmd: cargo build --release
   coverage:
     desc: Run coverage tools
     cmds:
