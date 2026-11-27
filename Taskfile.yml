@@ -1,5 +1,11 @@
 version: '3'
 
+includes:
+  platform-test-windows:
+    taskfile: ./scripts/tasks/platform-test-windows.yml
+    dir: .scripts/tasks
+    flatten: true
+
 tasks:
   default:
     desc: Show all tasks

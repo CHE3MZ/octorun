@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+tasks:
+  platform-test-windows:
+    env:
+      WSB_SBX_ID:
+        sh: wsb start --id --raw | jq -r '.Id'
+    desc: Run windows tests via wsb
+    cmds:
+      - cmd: 'if [ -z "$WSB_SBX_ID" ]; then echo "ERROR: WSB_SBX_ID is empty"; exit 1; fi'
+      - cmd: echo "A new sandbox has been started with the ID:" "$WSB_SBX_ID"
+      - cmd: wsb stop --id $WSB_SBX_ID
+      - cmd: echo "The sandbox has been stopped"
