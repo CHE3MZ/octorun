@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use super::cleanup::{DirGuard, cancel_flag};
 use super::{runner_dir, runner_url, scope_for, validate_name};
 use crate::cli::{Cli, CreateArgs};
 use crate::error::{Error, Result};
@@ -26,7 +27,12 @@ pub(crate) struct Context {
 /// Returns an error if the repository, target, or token cannot be resolved, the
 /// runner files cannot be installed, or the configuration script fails.
 pub fn run(cli: &Cli, args: &CreateArgs) -> Result<()> {
-    let context = prepare(cli, args, false, None, false)?;
+    let cancelled = cancel_flag()?;
+    let mut guard = DirGuard::new(runner_dir(cli));
+
+    let context = prepare(cli, args, false, Some(&cancelled), false)?;
+    guard.disarm();
+
     tracing::info!(
         "runner `{}` is ready at {}",
         cli.name,
@@ -87,6 +93,9 @@ pub(crate) fn prepare(
     check_cancel(cancel)?;
     let tokens = resolve_tokens_with(cli.token.as_deref(), host)?;
     let api = Client::with_tokens(host, tokens)?;
+
+    fs::create_dir_all(&runner_dir)?;
+    write_gitignore(&runner_dir)?;
     install::install(
         &api,
         args.location.as_deref(),
@@ -94,7 +103,6 @@ pub(crate) fn prepare(
         platform,
         cancel,
     )?;
-    write_gitignore(&runner_dir)?;
 
     check_cancel(cancel)?;
     let registration_token = api.runner_token(&scope, TokenKind::Registration)?;
@@ -110,16 +118,14 @@ pub(crate) fn prepare(
     };
 
     if let Err(error) = config::configure(&runner_dir, &options) {
-        if cleanup_on_error {
+        if cleanup_on_error || cancel.is_some_and(|flag| flag.load(Ordering::SeqCst)) {
             cleanup_partial(&runner_dir, host, &scope, cli.token.as_deref());
         }
         return Err(error);
     }
 
     if let Err(error) = check_cancel(cancel) {
-        if cleanup_on_error {
-            cleanup_partial(&runner_dir, host, &scope, cli.token.as_deref());
-        }
+        cleanup_partial(&runner_dir, host, &scope, cli.token.as_deref());
         return Err(error);
     }
 

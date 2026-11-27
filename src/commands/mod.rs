@@ -6,6 +6,8 @@ pub mod start;
 pub mod stop;
 pub mod temp;
 
+mod cleanup;
+
 use std::path::{Path, PathBuf};
 
 use crate::cli::{Cli, Command};

@@ -1,14 +1,12 @@
 //! `octorun temp` — create a runner, use it, then remove it.
 
 use std::fs;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
+use super::cleanup::{DirGuard, cancel_flag};
 use super::create::{self, Context};
 use super::{deregister, runner_dir};
 use crate::cli::{Cli, TempArgs};
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::runner::process;
 
 /// Create a temporary runner, wait for it, then remove it.
@@ -65,18 +63,6 @@ pub fn run(cli: &Cli, args: &TempArgs) -> Result<()> {
     cleanup(&context, cli.token.as_deref())
 }
 
-fn cancel_flag() -> Result<Arc<AtomicBool>> {
-    let cancelled = Arc::new(AtomicBool::new(false));
-    let handler = Arc::clone(&cancelled);
-
-    ctrlc::set_handler(move || {
-        handler.store(true, Ordering::SeqCst);
-    })
-    .map_err(|error| Error::Command(format!("could not install Ctrl+C handler: {error}")))?;
-
-    Ok(cancelled)
-}
-
 fn cleanup(context: &Context, token: Option<&str>) -> Result<()> {
     let dir = &context.runner_dir;
 
@@ -93,36 +79,11 @@ fn cleanup(context: &Context, token: Option<&str>) -> Result<()> {
     }
 }
 
-/// Removes a runner directory if setup does not finish.
-struct DirGuard {
-    dir: PathBuf,
-    armed: bool,
-}
-
-impl DirGuard {
-    fn new(dir: PathBuf) -> Self {
-        let armed = !dir.exists();
-        Self { dir, armed }
-    }
-
-    fn disarm(&mut self) {
-        self.armed = false;
-    }
-}
-
-impl Drop for DirGuard {
-    fn drop(&mut self) {
-        if self.armed {
-            let _ = fs::remove_dir_all(&self.dir);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
 
-    use super::{DirGuard, cleanup};
+    use super::cleanup;
     use crate::commands::create::Context;
     use crate::github::Scope;
 
@@ -155,24 +116,5 @@ mod tests {
         let runner = dir.path().join("missing");
 
         cleanup(&context(runner), None).unwrap();
-    }
-
-    #[test]
-    fn guard_removes_only_new_directories() {
-        let dir = tempfile::tempdir().unwrap();
-
-        let fresh = dir.path().join("fresh");
-        {
-            let _guard = DirGuard::new(fresh.clone());
-            fs::create_dir_all(&fresh).unwrap();
-        }
-        assert!(!fresh.exists());
-
-        let existing = dir.path().join("existing");
-        fs::create_dir_all(&existing).unwrap();
-        {
-            let _guard = DirGuard::new(existing.clone());
-        }
-        assert!(existing.exists());
     }
 }

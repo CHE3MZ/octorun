@@ -67,16 +67,18 @@ fn install_from_url(
     digest: Option<&str>,
     cancel: Option<&AtomicBool>,
 ) -> Result<()> {
-    if let Some(parent) = dest.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
+    let created_dest = !dest.exists();
+    fs::create_dir_all(dest)?;
 
     let file_name = archive_file_name(url);
-    let archive_path = dest.with_file_name(format!(".octorun-{file_name}"));
+    let archive_path = dest.join(format!(".octorun-{file_name}"));
 
-    download_with_cancel(url, &archive_path, cancel)?;
+    if let Err(error) = download_with_cancel(url, &archive_path, cancel) {
+        if created_dest {
+            let _ = fs::remove_dir_all(dest);
+        }
+        return Err(error);
+    }
 
     let result = (|| {
         if let Some(digest) = digest {
@@ -90,6 +92,10 @@ fn install_from_url(
             "could not remove temporary archive {}: {error}",
             archive_path.display()
         );
+    }
+
+    if result.is_err() && created_dest {
+        let _ = fs::remove_dir_all(dest);
     }
 
     result
@@ -143,8 +149,37 @@ fn archive_file_name(url: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread::JoinHandle;
 
-    use super::{archive_file_name, copy_dir, is_url, verify_digest};
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+
+    use super::{archive_file_name, copy_dir, install, is_url, verify_digest};
+    use crate::github::Client;
+    use crate::runner::RunnerPlatform;
+
+    fn serve_once(body: Vec<u8>) -> (String, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0_u8; 1024];
+            let _ = stream.read(&mut buffer);
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            stream.write_all(&body).unwrap();
+            stream.flush().unwrap();
+        });
+
+        (format!("http://{address}/runner.tar.gz"), handle)
+    }
 
     #[test]
     fn recognizes_urls() {
@@ -200,5 +235,38 @@ mod tests {
         )
         .unwrap();
         assert!(verify_digest(&path, "sha256:deadbeef").is_err());
+    }
+
+    #[test]
+    fn installs_from_a_url_with_a_staging_archive_inside_dest() {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+        {
+            let mut builder = tar::Builder::new(&mut encoder);
+            let data = b"#!/bin/sh\n";
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o755);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, "config.sh", &data[..])
+                .unwrap();
+            builder.finish().unwrap();
+        }
+        let bytes = encoder.finish().unwrap();
+
+        let (url, server) = serve_once(bytes);
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("runner");
+        let client = Client::with_base_url("http://127.0.0.1:1", "token").unwrap();
+
+        install(&client, Some(&url), &dest, RunnerPlatform::LinuxAmd64, None).unwrap();
+        server.join().unwrap();
+
+        assert_eq!(
+            fs::read_to_string(dest.join("config.sh")).unwrap(),
+            "#!/bin/sh\n"
+        );
+        assert!(!dest.join(".octorun-runner.tar.gz").exists());
+        assert!(!dir.path().join(".octorun-runner.tar.gz").exists());
     }
 }
