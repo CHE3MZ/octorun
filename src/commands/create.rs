@@ -94,6 +94,7 @@ pub(crate) fn prepare(
         platform,
         cancel,
     )?;
+    write_gitignore(&runner_dir)?;
 
     check_cancel(cancel)?;
     let registration_token = api.runner_token(&scope, TokenKind::Registration)?;
@@ -138,6 +139,11 @@ fn check_cancel(cancel: Option<&AtomicBool>) -> Result<()> {
     }
 }
 
+fn write_gitignore(dir: &Path) -> Result<()> {
+    fs::write(dir.join(".gitignore"), "*\n")?;
+    Ok(())
+}
+
 fn cleanup_partial(dir: &Path, host: &str, scope: &Scope, token: Option<&str>) {
     if dir.join(".runner").exists()
         && let Err(error) = super::deregister(dir, host, scope, token)
@@ -151,6 +157,24 @@ fn cleanup_partial(dir: &Path, host: &str, scope: &Scope, token: Option<&str>) {
         tracing::warn!(
             "could not remove runner directory {}: {error}",
             dir.display()
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::write_gitignore;
+
+    #[test]
+    fn ignores_the_runner_directory_contents() {
+        let dir = tempfile::tempdir().unwrap();
+        write_gitignore(dir.path()).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(dir.path().join(".gitignore")).unwrap(),
+            "*\n"
         );
     }
 }
