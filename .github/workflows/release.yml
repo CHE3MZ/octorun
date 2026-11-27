@@ -137,18 +137,64 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-  homebrew:
-    name: homebrew
+  homebrew-test:
+    name: homebrew test (${{ matrix.runner }})
     needs: [validate, release]
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-26, macos-26-intel]
+    runs-on: ${{ matrix.runner }}
     env:
-      GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: artifacts-*
           path: dist
           merge-multiple: true
+      - name: Generate the formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh scripts/release/homebrew.sh "$GITHUB_REF_NAME" dist "$RUNNER_TEMP/octorun.rb"
+      - name: Test the formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew tap-new octorun/test
+          tap_dir="$(brew --repository)/Library/Taps/octorun/homebrew-test"
+          mkdir -p "$tap_dir/Formula"
+          cp "$RUNNER_TEMP/octorun.rb" "$tap_dir/Formula/octorun.rb"
+          brew audit --strict --online octorun/test/octorun
+          brew install octorun/test/octorun
+          brew test octorun/test/octorun
+
+  homebrew:
+    name: homebrew
+    needs: [validate, release, homebrew-test]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: artifacts-*
+          path: dist
+          merge-multiple: true
+      - name: Generate the formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh scripts/release/homebrew.sh "$GITHUB_REF_NAME" dist "$RUNNER_TEMP/octorun.rb"
       - name: Update the Homebrew formula
         shell: bash
         run: |
@@ -156,48 +202,7 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           tap="CHE3MZ/homebrew-tools"
           formula_path="Formula/octorun.rb"
-          sha() { awk '{print $1}' "dist/octorun-$1.tar.gz.sha256"; }
-          mac_arm=$(sha aarch64-apple-darwin)
-          mac_intel=$(sha x86_64-apple-darwin)
-          linux_arm=$(sha aarch64-unknown-linux-gnu)
-          linux_intel=$(sha x86_64-unknown-linux-gnu)
           formula="$RUNNER_TEMP/octorun.rb"
-          cat > "$formula" <<EOF
-          class Octorun < Formula
-            desc "Create disposable self-hosted GitHub Actions runners"
-            homepage "https://github.com/CHE3MZ/octorun"
-            version "${version}"
-            license "MIT"
-
-            on_macos do
-              if Hardware::CPU.arm?
-                url "https://github.com/CHE3MZ/octorun/releases/download/${GITHUB_REF_NAME}/octorun-aarch64-apple-darwin.tar.gz"
-                sha256 "${mac_arm}"
-              else
-                url "https://github.com/CHE3MZ/octorun/releases/download/${GITHUB_REF_NAME}/octorun-x86_64-apple-darwin.tar.gz"
-                sha256 "${mac_intel}"
-              end
-            end
-
-            on_linux do
-              if Hardware::CPU.arm?
-                url "https://github.com/CHE3MZ/octorun/releases/download/${GITHUB_REF_NAME}/octorun-aarch64-unknown-linux-gnu.tar.gz"
-                sha256 "${linux_arm}"
-              else
-                url "https://github.com/CHE3MZ/octorun/releases/download/${GITHUB_REF_NAME}/octorun-x86_64-unknown-linux-gnu.tar.gz"
-                sha256 "${linux_intel}"
-              end
-            end
-
-            def install
-              bin.install "octorun"
-            end
-
-            test do
-              system "#{bin}/octorun", "--version"
-            end
-          end
-          EOF
           content=$(base64 -w0 "$formula")
           sha_file=$(gh api "repos/$tap/contents/$formula_path" --jq .sha 2>/dev/null || true)
           args=(-X PUT "repos/$tap/contents/$formula_path" -f message="octorun $version" -f content="$content")
