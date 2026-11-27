@@ -4,6 +4,7 @@ repository = "https://github.com/CHE3MZ/octorun"
 name = "octorun"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.90.0"
 license = "MIT"
 
 [dependencies]
