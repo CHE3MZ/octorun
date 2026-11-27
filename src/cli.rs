@@ -18,17 +18,18 @@ pub struct Cli {
         long,
         global = true,
         value_name = "NAME",
-        default_value = "actions-runner"
+        default_value = "actions-runner",
+        hide_default_value = true
     )]
     pub name: String,
-
-    /// Repository to use <OWNER/REPO> (defaults to the current repository).
-    #[arg(short, long, global = true, value_name = "OWNER/REPO")]
-    pub repo: Option<String>,
 
     /// Change the directory to run in (defaults to the current directory).
     #[arg(short, long, global = true, value_name = "DIR")]
     pub dir: Option<PathBuf>,
+
+    /// Repository to use <OWNER/REPO> (defaults to the current repository).
+    #[arg(short, long, global = true, value_name = "OWNER/REPO")]
+    pub repo: Option<String>,
 
     /// The subcommand to execute.
     #[command(subcommand)]

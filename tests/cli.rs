@@ -18,6 +18,26 @@ fn help_lists_all_subcommands() {
 }
 
 #[test]
+fn help_hides_name_default() {
+    let mut cmd = Command::cargo_bin("octorun").unwrap();
+    cmd.arg("help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[default: actions-runner]").not());
+}
+
+#[test]
+fn help_lists_dir_before_repo() {
+    let mut cmd = Command::cargo_bin("octorun").unwrap();
+    let output = cmd.arg("help").output().unwrap();
+    let text = String::from_utf8(output.stdout).unwrap();
+
+    let dir = text.find("--dir").expect("--dir should be in help");
+    let repo = text.find("--repo").expect("--repo should be in help");
+    assert!(dir < repo, "--dir should appear before --repo");
+}
+
+#[test]
 fn version_is_reported() {
     let mut cmd = Command::cargo_bin("octorun").unwrap();
     cmd.arg("--version")
