@@ -4,6 +4,8 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
+use crate::runner::RunnerPlatform;
+
 /// Create self hosted GitHub Actions runners.
 #[derive(Debug, Parser)]
 #[command(name = "octorun", version, about, long_about = None)]
@@ -66,6 +68,18 @@ pub struct CreateArgs {
     #[arg(short, long, value_name = "LOCATION")]
     pub location: Option<String>,
 
+    /// Set the runner platform (defaults to auto detected system architecture).
+    /// Available values: windows-amd64, windows-arm64, macos-amd64, macos-arm64,
+    /// linux-amd64, linux-arm64.
+    #[arg(
+        short,
+        long,
+        value_enum,
+        value_name = "PLATFORM",
+        hide_possible_values = true
+    )]
+    pub platform: Option<RunnerPlatform>,
+
     /// Runner group to add the runner to (defaults to 'Default').
     #[arg(short, long, value_name = "GROUP")]
     pub group: Option<String>,
@@ -110,6 +124,7 @@ pub struct TempArgs {
 #[cfg(test)]
 mod tests {
     use super::{Cli, Command};
+    use crate::runner::RunnerPlatform;
     use clap::Parser;
 
     #[test]
@@ -139,6 +154,8 @@ mod tests {
             "-o",
             "-l",
             "https://example.com/runner.tar.gz",
+            "-p",
+            "linux-arm64",
             "-g",
             "fast",
             "--labels",
@@ -155,6 +172,7 @@ mod tests {
             args.location.as_deref(),
             Some("https://example.com/runner.tar.gz")
         );
+        assert_eq!(args.platform, Some(RunnerPlatform::LinuxArm64));
         assert_eq!(args.group.as_deref(), Some("fast"));
         assert_eq!(args.labels.as_deref(), Some("self-hosted,linux"));
         assert_eq!(args.org.as_deref(), Some("acme"));
@@ -176,6 +194,8 @@ mod tests {
             "fast",
             "-l",
             "https://example.com/runner.zip",
+            "-p",
+            "macos-arm64",
         ])
         .unwrap();
 
@@ -183,10 +203,16 @@ mod tests {
             panic!("expected temp subcommand");
         };
         assert!(args.ephemeral);
+        assert_eq!(args.create.platform, Some(RunnerPlatform::MacosArm64));
         assert_eq!(args.create.group.as_deref(), Some("fast"));
         assert_eq!(
             args.create.location.as_deref(),
             Some("https://example.com/runner.zip")
         );
+    }
+
+    #[test]
+    fn rejects_unknown_platform() {
+        assert!(Cli::try_parse_from(["octorun", "create", "-p", "plan9-amd64"]).is_err());
     }
 }

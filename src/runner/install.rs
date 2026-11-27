@@ -5,24 +5,29 @@ use std::path::Path;
 
 use crate::error::{Error, Result};
 use crate::github::Client;
-use crate::runner::{archive_name, download, extract};
+use crate::runner::{RunnerPlatform, download, extract};
 
 /// Install runner files into `dest`.
 ///
 /// `location` may be an archive URL, a local archive, or a directory. When it
-/// is `None`, the latest runner release is resolved through `api`.
+/// is `None`, the latest `platform` release is resolved through `api`.
 ///
 /// # Errors
 ///
 /// Returns an error if the release cannot be resolved, the download fails, the
 /// archive cannot be extracted, or the source is missing.
-pub fn install(api: &Client, location: Option<&str>, dest: &Path) -> Result<()> {
+pub fn install(
+    api: &Client,
+    location: Option<&str>,
+    dest: &Path,
+    platform: RunnerPlatform,
+) -> Result<()> {
     match location {
         Some(location) if is_url(location) => install_from_url(location, dest),
         Some(location) => install_from_path(Path::new(location), dest),
         None => {
             let release = api.latest_runner_release()?;
-            let archive = archive_name(release.version())?;
+            let archive = platform.archive_name(release.version());
             let tag = &release.tag_name;
             let url =
                 format!("https://github.com/actions/runner/releases/download/{tag}/{archive}");

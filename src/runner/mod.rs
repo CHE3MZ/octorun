@@ -9,4 +9,4 @@ pub mod process;
 
 pub use download::download;
 pub use extract::extract;
-pub use platform::{arch, archive_extension, archive_name, os};
+pub use platform::{RunnerPlatform, arch, archive_extension, archive_name, os};

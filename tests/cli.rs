@@ -131,6 +131,18 @@ fn create_rejects_invalid_repository() {
 }
 
 #[test]
+fn create_rejects_invalid_platform() {
+    let dir = tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("octorun").unwrap();
+    cmd.args(["-r", "acme/app", "-d"])
+        .arg(dir.path())
+        .args(["create", "-p", "plan9-amd64"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("plan9-amd64"));
+}
+
+#[test]
 fn create_refuses_existing_directory_without_overwrite() {
     let dir = tempdir().unwrap();
     fs::create_dir(dir.path().join("actions-runner")).unwrap();

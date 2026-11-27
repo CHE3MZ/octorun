@@ -7,6 +7,7 @@ use super::{runner_dir, runner_url, scope_for, validate_name};
 use crate::cli::{Cli, CreateArgs};
 use crate::error::{Error, Result};
 use crate::github::{Client, Repository, Scope, TokenKind, resolve_token};
+use crate::runner::RunnerPlatform;
 use crate::runner::config::{self, Options};
 use crate::runner::install;
 
@@ -66,11 +67,15 @@ pub(crate) fn prepare(cli: &Cli, args: &CreateArgs, ephemeral: bool) -> Result<C
 
     let scope = scope_for(&repository, args.org.as_deref(), args.enterprise.as_deref())?;
     let url = runner_url(host, &scope);
+    let platform = match args.platform {
+        Some(platform) => platform,
+        None => RunnerPlatform::detect()?,
+    };
 
     let token = resolve_token(host)?;
     let api = Client::new(host, token)?;
 
-    install::install(&api, args.location.as_deref(), &runner_dir)?;
+    install::install(&api, args.location.as_deref(), &runner_dir, platform)?;
 
     let registration_token = api.runner_token(&scope, TokenKind::Registration)?;
     let options = Options {
