@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
-/// Create disposable GitHub Actions runners.
+/// Create self hosted GitHub Actions runners.
 #[derive(Debug, Parser)]
 #[command(name = "octorun", version, about, long_about = None)]
 pub struct Cli {

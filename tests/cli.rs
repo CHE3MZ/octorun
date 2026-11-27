@@ -18,6 +18,17 @@ fn help_lists_all_subcommands() {
 }
 
 #[test]
+fn help_shows_about_text() {
+    let mut cmd = Command::cargo_bin("octorun").unwrap();
+    cmd.arg("help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Create self hosted GitHub Actions runners",
+        ));
+}
+
+#[test]
 fn help_hides_name_default() {
     let mut cmd = Command::cargo_bin("octorun").unwrap();
     cmd.arg("help")
