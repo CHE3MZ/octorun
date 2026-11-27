@@ -29,7 +29,7 @@ pub fn run(cli: &Cli, args: &TempArgs) -> Result<()> {
     let mut child = match process::spawn(&context.runner_dir) {
         Ok(child) => child,
         Err(error) => {
-            let _ = cleanup(&context);
+            let _ = cleanup(&context, cli.token.as_deref());
             return Err(error);
         }
     };
@@ -40,7 +40,7 @@ pub fn run(cli: &Cli, args: &TempArgs) -> Result<()> {
         Err(error) => {
             let _ = process::stop(&context.runner_dir);
             let _ = child.wait();
-            let _ = cleanup(&context);
+            let _ = cleanup(&context, cli.token.as_deref());
             return Err(error);
         }
     };
@@ -62,7 +62,7 @@ pub fn run(cli: &Cli, args: &TempArgs) -> Result<()> {
         }
     }
 
-    cleanup(&context)
+    cleanup(&context, cli.token.as_deref())
 }
 
 fn cancel_flag() -> Result<Arc<AtomicBool>> {
@@ -77,11 +77,11 @@ fn cancel_flag() -> Result<Arc<AtomicBool>> {
     Ok(cancelled)
 }
 
-fn cleanup(context: &Context) -> Result<()> {
+fn cleanup(context: &Context, token: Option<&str>) -> Result<()> {
     let dir = &context.runner_dir;
 
     if dir.join(".runner").exists()
-        && let Err(error) = deregister(dir, &context.host, &context.scope)
+        && let Err(error) = deregister(dir, &context.host, &context.scope, token)
     {
         tracing::warn!("could not deregister runner: {error}");
     }
@@ -144,7 +144,7 @@ mod tests {
         fs::create_dir_all(&runner).unwrap();
         fs::write(runner.join("config.sh"), b"stub").unwrap();
 
-        cleanup(&context(runner.clone())).unwrap();
+        cleanup(&context(runner.clone()), None).unwrap();
 
         assert!(!runner.exists());
     }
@@ -154,7 +154,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let runner = dir.path().join("missing");
 
-        cleanup(&context(runner)).unwrap();
+        cleanup(&context(runner), None).unwrap();
     }
 
     #[test]

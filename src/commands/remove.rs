@@ -36,7 +36,7 @@ pub fn run(cli: &Cli, args: &RemoveArgs) -> Result<()> {
         let host = repository.host();
         let scope = scope_for(&repository, args.org.as_deref(), args.enterprise.as_deref())?;
 
-        super::deregister(&runner_dir, host, &scope)?;
+        super::deregister(&runner_dir, host, &scope, cli.token.as_deref())?;
     } else {
         tracing::warn!(
             "no configuration script found; deleting the directory without deregistering"

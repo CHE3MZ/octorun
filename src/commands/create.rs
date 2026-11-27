@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use super::{runner_dir, runner_url, scope_for, validate_name};
 use crate::cli::{Cli, CreateArgs};
 use crate::error::{Error, Result};
-use crate::github::{Client, Repository, Scope, TokenKind, resolve_tokens};
+use crate::github::{Client, Repository, Scope, TokenKind, resolve_tokens_with};
 use crate::runner::RunnerPlatform;
 use crate::runner::config::{self, Options};
 use crate::runner::install;
@@ -85,7 +85,7 @@ pub(crate) fn prepare(
     };
 
     check_cancel(cancel)?;
-    let tokens = resolve_tokens(host)?;
+    let tokens = resolve_tokens_with(cli.token.as_deref(), host)?;
     let api = Client::with_tokens(host, tokens)?;
     install::install(
         &api,
@@ -111,14 +111,14 @@ pub(crate) fn prepare(
 
     if let Err(error) = config::configure(&runner_dir, &options) {
         if cleanup_on_error {
-            cleanup_partial(&runner_dir, host, &scope);
+            cleanup_partial(&runner_dir, host, &scope, cli.token.as_deref());
         }
         return Err(error);
     }
 
     if let Err(error) = check_cancel(cancel) {
         if cleanup_on_error {
-            cleanup_partial(&runner_dir, host, &scope);
+            cleanup_partial(&runner_dir, host, &scope, cli.token.as_deref());
         }
         return Err(error);
     }
@@ -138,9 +138,9 @@ fn check_cancel(cancel: Option<&AtomicBool>) -> Result<()> {
     }
 }
 
-fn cleanup_partial(dir: &Path, host: &str, scope: &Scope) {
+fn cleanup_partial(dir: &Path, host: &str, scope: &Scope, token: Option<&str>) {
     if dir.join(".runner").exists()
-        && let Err(error) = super::deregister(dir, host, scope)
+        && let Err(error) = super::deregister(dir, host, scope, token)
     {
         tracing::warn!("could not deregister runner: {error}");
     }

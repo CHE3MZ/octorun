@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::{Cli, Command};
 use crate::error::{Error, Result};
-use crate::github::{Client, Repository, Scope, TokenKind, resolve_tokens};
+use crate::github::{Client, Repository, Scope, TokenKind, resolve_tokens_with};
 use crate::runner::config;
 
 /// Dispatch a parsed [`Cli`] to the matching subcommand handler.
@@ -76,8 +76,8 @@ pub(crate) fn runner_url(host: &str, scope: &Scope) -> String {
 ///
 /// Returns an error if the token cannot be resolved or the configuration
 /// script fails.
-pub(crate) fn deregister(dir: &Path, host: &str, scope: &Scope) -> Result<()> {
-    let tokens = resolve_tokens(host)?;
+pub(crate) fn deregister(dir: &Path, host: &str, scope: &Scope, token: Option<&str>) -> Result<()> {
+    let tokens = resolve_tokens_with(token, host)?;
     let api = Client::with_tokens(host, tokens)?;
     let removal_token = api.runner_token(scope, TokenKind::Remove)?;
     config::remove(dir, &removal_token)

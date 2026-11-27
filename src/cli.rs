@@ -33,6 +33,10 @@ pub struct Cli {
     #[arg(short, long, global = true, value_name = "OWNER/REPO")]
     pub repo: Option<String>,
 
+    /// GitHub API token (defaults to the token found automatically).
+    #[arg(short, long, global = true, value_name = "TOKEN")]
+    pub token: Option<String>,
+
     /// The subcommand to execute.
     #[command(subcommand)]
     pub command: Command,
@@ -131,17 +135,21 @@ mod tests {
         let cli = Cli::try_parse_from(["octorun", "start"]).unwrap();
         assert_eq!(cli.name, "actions-runner");
         assert!(cli.repo.is_none());
+        assert!(cli.token.is_none());
         assert!(cli.dir.is_none());
         assert!(!cli.verbose);
     }
 
     #[test]
     fn global_options_are_accepted_before_subcommand() {
-        let cli =
-            Cli::try_parse_from(["octorun", "-v", "-n", "fast", "-r", "acme/app", "stop"]).unwrap();
+        let cli = Cli::try_parse_from([
+            "octorun", "-v", "-n", "fast", "-r", "acme/app", "-t", "secret", "stop",
+        ])
+        .unwrap();
         assert!(cli.verbose);
         assert_eq!(cli.name, "fast");
         assert_eq!(cli.repo.as_deref(), Some("acme/app"));
+        assert_eq!(cli.token.as_deref(), Some("secret"));
         assert!(matches!(cli.command, Command::Stop));
     }
 

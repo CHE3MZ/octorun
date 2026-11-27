@@ -38,6 +38,24 @@ pub fn resolve_tokens(host: &str) -> Result<Vec<String>> {
     }
 }
 
+/// Find GitHub tokens, preferring an explicitly provided token.
+///
+/// When `explicit` is missing or blank, the usual `GH_TOKEN`, `GITHUB_TOKEN`,
+/// and `gh auth token` lookup is used.
+///
+/// # Errors
+///
+/// Returns [`Error::MissingToken`] when no token can be found.
+pub fn resolve_tokens_with(explicit: Option<&str>, host: &str) -> Result<Vec<String>> {
+    if let Some(token) = explicit {
+        let token = token.trim();
+        if !token.is_empty() {
+            return Ok(vec![token.to_owned()]);
+        }
+    }
+    resolve_tokens(host)
+}
+
 /// Find the first GitHub token for `host`.
 ///
 /// # Errors
@@ -79,7 +97,7 @@ fn push_unique(tokens: &mut Vec<String>, token: String) {
 
 #[cfg(test)]
 mod tests {
-    use super::push_unique;
+    use super::{push_unique, resolve_tokens_with};
 
     #[test]
     fn deduplicates_tokens_in_order() {
@@ -90,5 +108,13 @@ mod tests {
         push_unique(&mut tokens, "second".to_owned());
 
         assert_eq!(tokens, ["first", "second"]);
+    }
+
+    #[test]
+    fn explicit_token_takes_precedence() {
+        assert_eq!(
+            resolve_tokens_with(Some("  secret  "), "github.com").unwrap(),
+            ["secret"]
+        );
     }
 }
