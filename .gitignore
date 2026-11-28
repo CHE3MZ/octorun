@@ -33,3 +33,6 @@ __pycache__/
 env/
 venv/
 .venv/
+
+# Mkdocs
+/site/

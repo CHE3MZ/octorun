@@ -1,0 +1,71 @@
+site_name: octorun
+site_description: A tool to create self hosted github actions runners
+site_author: CHE3MZ
+site_url: https://che3mz.github.io/octorun/
+repo_url: https://github.com/CHE3MZ/octorun
+copyright: Copyright (c) 2026 CHE3MZ
+
+nav:
+  - Home: index.md
+  - Coverage: https://coveralls.io/github/CHE3MZ/octorun?branch=master
+  - API Docs: https://docs.rs/octorun/latest/octorun/
+
+theme:
+  name: "material"
+  language: en
+  logo: assets/icon.png
+  favicon: assets/icon.png
+  font:
+    text: Averia Serif Libre
+    code: Roboto Mono
+  palette:
+    - media: "(prefers-color-scheme)"
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      primary: custom
+      accent: custom
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      primary: custom
+      accent: custom
+      scheme: octorun
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+
+hooks:
+  - docs/scripts/mkdocs-hooks.py
+
+extra_css:
+  - assets/stylesheets/extra.css
+
+extra:
+  generator: false
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+  - footnotes
