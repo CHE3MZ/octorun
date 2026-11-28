@@ -44,8 +44,18 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
+            zigbuild: true
+            glibc: '2.17'
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
+            zigbuild: true
+            glibc: '2.17'
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            zigbuild: true
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            zigbuild: true
           - target: x86_64-apple-darwin
             runner: macos-26-intel
           - target: aarch64-apple-darwin
@@ -56,6 +66,8 @@ jobs:
             runner: windows-11-arm
     env:
       TARGET: ${{ matrix.target }}
+      ZIGBUILD: ${{ matrix.zigbuild }}
+      GLIBC: ${{ matrix.glibc }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -64,9 +76,30 @@ jobs:
         with:
           target: ${{ matrix.target }}
           cache: false
+      - name: Install Zig
+        if: matrix.zigbuild
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.14.1
+          use-cache: false
+      - name: Install cargo-zigbuild
+        if: matrix.zigbuild
+        uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
+        with:
+          tool: cargo-zigbuild
       - name: Build
         shell: bash
-        run: cargo build --release --locked --target "$TARGET"
+        run: |
+          set -euo pipefail
+          target="$TARGET"
+          if [ -n "${GLIBC:-}" ]; then
+            target="${target}.${GLIBC}"
+          fi
+          if [ "${ZIGBUILD:-false}" = "true" ]; then
+            cargo zigbuild --release --locked --target "$target"
+          else
+            cargo build --release --locked --target "$target"
+          fi
       - name: Package (Unix)
         if: runner.os != 'Windows'
         shell: bash

@@ -10,12 +10,20 @@ REPO="CHE3MZ/octorun"
 VERSION="${OCTORUN_VERSION:-}"
 INSTALL_DIR="${OCTORUN_INSTALL_DIR:-$HOME/.local/bin}"
 
+detect_libc() {
+  if ls /lib/ld-musl-* >/dev/null 2>&1 || ldd /bin/sh 2>/dev/null | grep -qi musl; then
+    printf 'musl'
+  else
+    printf 'gnu'
+  fi
+}
+
 detect_target() {
   os=$(uname -s)
   arch=$(uname -m)
 
   case "$os" in
-    Linux) os_part="unknown-linux-gnu" ;;
+    Linux) os_part="unknown-linux-$(detect_libc)" ;;
     Darwin) os_part="apple-darwin" ;;
     *)
       echo "unsupported operating system: $os" >&2
