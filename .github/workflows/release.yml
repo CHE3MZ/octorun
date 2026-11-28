@@ -155,7 +155,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git-cliff --tag "$GITHUB_REF_NAME" --strip all --output "$RUNNER_TEMP/release-notes.md"
+          if previous=$(git describe --tags --abbrev=0 --exclude "$GITHUB_REF_NAME" HEAD 2>/dev/null); then
+            git-cliff "${previous}..${GITHUB_REF_NAME}" --strip all --output "$RUNNER_TEMP/release-notes.md"
+          else
+            git-cliff "${GITHUB_REF_NAME}" --strip all --output "$RUNNER_TEMP/release-notes.md"
+          fi
       - name: Create or update the GitHub release
         shell: bash
         run: |
