@@ -16,8 +16,14 @@ if (-not $version.StartsWith('v')) {
   $version = "v$version"
 }
 
-$arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
-$target = "$arch-pc-windows-msvc"
+$arch = try { [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() } catch { $env:PROCESSOR_ARCHITECTURE }
+$target = switch ($arch) {
+  'Arm64' { 'aarch64-pc-windows-msvc' }
+  'X64' { 'x86_64-pc-windows-msvc' }
+  'AMD64' { 'x86_64-pc-windows-msvc' }
+  'X86' { 'x86_64-pc-windows-msvc' }
+  default { throw "unsupported Windows architecture: $arch" }
+}
 $asset = "octorun-$target.zip"
 $url = "https://github.com/$repo/releases/download/$version/$asset"
 
