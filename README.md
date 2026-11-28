@@ -3,6 +3,7 @@
 # **octorun**
 
 [![CI checks](https://img.shields.io/github/actions/workflow/status/CHE3MZ/octorun/ci.yml?style=for-the-badge&logo=github&logoColor=99A0A8&labelColor=373F46&label=CI&color=32CA55)](https://github.com/CHE3MZ/octorun/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/octorun?style=for-the-badge&logo=rust&logoColor=99A0A8&labelColor=373F46&label=Crates.io&color=32CA55)](https://crates.io/crates/octorun)
 
 ### octorun is a tool that lets you deploy GitHub Actions local runners at blazingly fast speeds!
 
@@ -38,7 +39,7 @@ cargo binstall octorun
 
 ### MacOS & Linux
 
-```powershell
+```sh
 curl -LsSf https://raw.githubusercontent.com/CHE3MZ/octorun/master/scripts/install/install.sh | sh
 ```
 
