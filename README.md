@@ -7,7 +7,7 @@
 
 ### octorun is a tool that lets you deploy GitHub Actions local runners at blazingly fast speeds!
 
-<img src="assets/placeholder.png" alt="Demo gif" width="256" />
+<img src="assets/demo.gif" alt="Demo gif" width="680" />
 
 # Installation
 
@@ -93,7 +93,7 @@ octorun help
 
 To get started, install [go-task](https://taskfile.dev/) (a.k.a [taskfile](https://taskfile.dev/)), you will need it to run a lot of the local CI jobs.
 
-<img src="assets/actions.png" alt="notice" width="64" />
+<img src="assets/actions.png" alt="actions" width="64" />
 
 ## Building
 
