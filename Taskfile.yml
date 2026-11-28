@@ -140,6 +140,10 @@ tasks:
       - task: check-scripts
       - task: check-configs
       - task: check-actions
+  docs:
+    desc: Build the documentation site
+    cmds:
+      - cmd: mkdocs build --clean --strict
   secrets:
     desc: Run secret scans
     ignore_error: true
