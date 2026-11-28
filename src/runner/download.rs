@@ -7,8 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
+use indicatif::ProgressBar;
 use reqwest::StatusCode;
-use reqwest::blocking::Client;
+use reqwest::blocking::{Client, Response};
 use sha2::{Digest, Sha256};
 
 use crate::error::{Error, Result};
@@ -40,8 +41,6 @@ pub fn download(url: &str, dest: &Path) -> Result<u64> {
 /// the request fails, the response is not successful, or the destination cannot
 /// be written.
 pub fn download_with_cancel(url: &str, dest: &Path, cancel: Option<&AtomicBool>) -> Result<u64> {
-    tracing::info!("downloading {url}");
-
     let client = Client::builder()
         .user_agent(concat!("octorun/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(CONNECT_TIMEOUT)
@@ -97,6 +96,29 @@ pub fn sha256_file(path: &Path) -> Result<String> {
 
 fn transfer(client: &Client, url: &str, dest: &Path, cancel: Option<&AtomicBool>) -> Result<u64> {
     let mut response = client.get(url).send()?.error_for_status()?;
+    let label = download_label(url);
+    let bar = response
+        .content_length()
+        .and_then(|total| crate::ui::download_bar(total, &label));
+
+    if bar.is_none() {
+        tracing::info!("downloading {url}");
+    }
+
+    let result = copy_response(&mut response, dest, cancel, bar.as_ref());
+    if let Some(bar) = bar {
+        bar.finish_and_clear();
+    }
+
+    result
+}
+
+fn copy_response(
+    response: &mut Response,
+    dest: &Path,
+    cancel: Option<&AtomicBool>,
+    bar: Option<&ProgressBar>,
+) -> Result<u64> {
     let mut file = File::create(dest)?;
     let mut buffer = vec![0_u8; BUFFER_SIZE];
     let mut bytes = 0_u64;
@@ -112,10 +134,26 @@ fn transfer(client: &Client, url: &str, dest: &Path, cancel: Option<&AtomicBool>
         }
         file.write_all(&buffer[..read])?;
         bytes += read as u64;
+        if let Some(bar) = bar {
+            bar.inc(read as u64);
+        }
     }
 
     file.flush()?;
     Ok(bytes)
+}
+
+fn download_label(url: &str) -> String {
+    let name = url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(url)
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or("runner");
+
+    format!("Downloading {name}")
 }
 
 fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {

@@ -19,12 +19,12 @@ fn main() -> ExitCode {
         Err(error) => error.exit(),
     };
 
-    init_tracing(cli.verbose);
+    octorun::logging::init(cli.verbose);
 
     match commands::run(&cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("error: {error}");
+            tracing::error!("{error}");
             ExitCode::FAILURE
         }
     }
@@ -43,18 +43,6 @@ fn styled_about() -> String {
     let start = style.render();
     let end = style.render_reset();
     format!("{start}{ABOUT_TEXT}{end}")
-}
-
-fn init_tracing(verbose: bool) {
-    let level = if verbose {
-        tracing::Level::DEBUG
-    } else {
-        tracing::Level::INFO
-    };
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(level)
-        .with_target(false)
-        .try_init();
 }
 
 #[cfg(test)]
