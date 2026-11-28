@@ -17,7 +17,7 @@ theme:
   favicon: assets/icon.png
   font:
     text: Averia Serif Libre
-    code: Roboto Mono
+    code: Outfit
   palette:
     - media: "(prefers-color-scheme)"
       primary: custom
@@ -58,6 +58,10 @@ extra_css:
 
 extra:
   generator: false
+  social:
+    - icon: fontawesome/brands/rust
+      link: https://crates.io/crates/octorun
+      name: Crates.io
 
 markdown_extensions:
   - admonition
