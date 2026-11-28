@@ -72,7 +72,18 @@ tasks:
       - cmd: rm -rf $outputdir
       - cmd: grcov $inputdir -s . -b $inputdir/debug -t html -o $outputdir
       - cmd: mv $targetdir $outputdir/$artifactsdir
-      - cmd: echo /$artifactsdir/ > covreport/.gitignore
+      - cmd: echo /$artifactsdir/ > $outputdir/.gitignore
+      - task: clean
+  coveralls:
+    env:
+      outputdir: covreport
+    desc: Test the coveralls coverage report
+    cmds:
+      - task: clean
+      - cmd: mkdir -p $outputdir
+      - cmd: cargo llvm-cov --all-targets --all-features --lcov --output-path $outputdir/lcov.info
+      - cmd: coveralls report $outputdir/lcov.info --dry-run --debug
+      - cmd: rm -rf $outputdir
       - task: clean
   clean:
     desc: Clean up the working directory
