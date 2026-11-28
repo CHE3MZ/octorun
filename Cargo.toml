@@ -2,7 +2,7 @@
 authors = ["CHE3MZ"]
 repository = "https://github.com/CHE3MZ/octorun"
 name = "octorun"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 rust-version = "1.90.0"
 license = "MIT"
