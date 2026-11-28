@@ -110,7 +110,7 @@ tasks:
   check-links:
     desc: Lint links
     cmds:
-      - cmd: lychee .
+      - cmd: lychee --config .github/lychee.toml .
   check-scripts:
     desc: Lint scripts
     ignore_error: true
