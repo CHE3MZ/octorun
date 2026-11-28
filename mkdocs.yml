@@ -50,6 +50,9 @@ theme:
 hooks:
   - docs/scripts/mkdocs-hooks.py
 
+watch:
+  - README.md
+
 extra_css:
   - assets/stylesheets/extra.css
 

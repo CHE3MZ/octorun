@@ -36,3 +36,4 @@ venv/
 
 # Mkdocs
 /site/
+/docs/index.md
