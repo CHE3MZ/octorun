@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use super::{runner_dir, validate_name};
-use crate::cli::Cli;
+use crate::cli::{Cli, RestartArgs};
 use crate::error::Result;
 use crate::runner::process;
 
@@ -11,20 +11,26 @@ const EXIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Stop the runner if it is running, then start it again.
 ///
-/// A runner that is not running is started. Restarting only relaunches the
-/// configured directory; it does not update the runner files or re-register.
+/// A runner that is not running is started unless `--if-running` is set.
+/// Restarting only relaunches the configured directory; it does not update
+/// the runner files or re-register.
 ///
 /// # Errors
 ///
 /// Returns an error if the runner is not configured, the old process cannot be
 /// stopped, it does not exit in time, or the new process cannot be started.
-pub fn run(cli: &Cli) -> Result<()> {
+pub fn run(cli: &Cli, args: &RestartArgs) -> Result<()> {
     validate_name(&cli.name)?;
     let dir = runner_dir(cli);
 
-    if let Some(pid) = process::stop_if_running(&dir)? {
+    let running = process::stop_if_running(&dir)?;
+
+    if let Some(pid) = running {
         tracing::info!("stopped runner `{}` (pid {pid})", cli.name);
         process::wait_for_exit(pid, EXIT_TIMEOUT)?;
+    } else if args.if_running {
+        tracing::info!("runner `{}` is not running", cli.name);
+        return Ok(());
     }
 
     let pid = process::start(&dir)?;
@@ -44,8 +50,12 @@ mod tests {
     use clap::Parser;
 
     use super::run;
-    use crate::cli::Cli;
+    use crate::cli::{Cli, RestartArgs};
     use crate::runner::process;
+
+    fn args(if_running: bool) -> RestartArgs {
+        RestartArgs { if_running }
+    }
 
     fn script_name() -> &'static str {
         if cfg!(windows) { "run.cmd" } else { "run.sh" }
@@ -108,7 +118,7 @@ mod tests {
         let runner = create_runner_dir(parent.path());
         let cli = cli_for(parent.path());
 
-        run(&cli).unwrap();
+        run(&cli, &args(false)).unwrap();
 
         assert!(runner.join(".octorun.pid").exists());
         process::stop(&runner).unwrap();
@@ -126,11 +136,50 @@ mod tests {
             let _ = child.wait();
         });
 
-        run(&cli).unwrap();
+        run(&cli, &args(false)).unwrap();
         waiter.join().unwrap();
 
         assert_ne!(read_pid(&runner), old_pid);
         process::stop(&runner).unwrap();
+    }
+
+    #[test]
+    fn if_running_leaves_a_stopped_runner_stopped() {
+        let parent = tempfile::tempdir().unwrap();
+        let runner = create_runner_dir(parent.path());
+        let cli = cli_for(parent.path());
+
+        run(&cli, &args(true)).unwrap();
+
+        assert!(!runner.join(".octorun.pid").exists());
+    }
+
+    #[test]
+    fn if_running_restarts_a_running_runner() {
+        let parent = tempfile::tempdir().unwrap();
+        let runner = create_runner_dir(parent.path());
+        let cli = cli_for(parent.path());
+
+        let mut child = process::spawn(&runner).unwrap();
+        let old_pid = child.id();
+        let waiter = std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+
+        run(&cli, &args(true)).unwrap();
+        waiter.join().unwrap();
+
+        assert_ne!(read_pid(&runner), old_pid);
+        process::stop(&runner).unwrap();
+    }
+
+    #[test]
+    fn if_running_ignores_a_missing_runner() {
+        let parent = tempfile::tempdir().unwrap();
+        fs::create_dir_all(parent.path().join("runner")).unwrap();
+        let cli = cli_for(parent.path());
+
+        run(&cli, &args(true)).unwrap();
     }
 
     #[test]
@@ -139,6 +188,6 @@ mod tests {
         fs::create_dir_all(parent.path().join("runner")).unwrap();
         let cli = cli_for(parent.path());
 
-        assert!(run(&cli).is_err());
+        assert!(run(&cli, &args(false)).is_err());
     }
 }

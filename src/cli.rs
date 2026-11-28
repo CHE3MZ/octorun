@@ -65,7 +65,7 @@ pub enum Command {
     Stop,
 
     /// Restart a runner started by octorun.
-    Restart,
+    Restart(RestartArgs),
 
     /// Create a temporary runner and remove it when stopped.
     Temp(TempArgs),
@@ -121,6 +121,14 @@ pub struct RemoveArgs {
     /// Remove the runner at the Organization level with the organization's name.
     #[arg(long, value_name = "ORG", display_order = 20)]
     pub org: Option<String>,
+}
+
+/// Options accepted by `octorun restart`.
+#[derive(Debug, Clone, Args)]
+pub struct RestartArgs {
+    /// Only restart the runner if it is already running.
+    #[arg(long)]
+    pub if_running: bool,
 }
 
 /// Options accepted by `octorun temp`.
@@ -212,7 +220,19 @@ mod tests {
     #[test]
     fn restart_parses() {
         let cli = Cli::try_parse_from(["octorun", "restart"]).unwrap();
-        assert!(matches!(cli.command, Command::Restart));
+        let Command::Restart(args) = cli.command else {
+            panic!("expected restart subcommand");
+        };
+        assert!(!args.if_running);
+    }
+
+    #[test]
+    fn restart_if_running_parses() {
+        let cli = Cli::try_parse_from(["octorun", "restart", "--if-running"]).unwrap();
+        let Command::Restart(args) = cli.command else {
+            panic!("expected restart subcommand");
+        };
+        assert!(args.if_running);
     }
 
     #[test]

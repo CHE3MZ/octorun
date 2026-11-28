@@ -27,7 +27,7 @@ pub fn run(cli: &Cli) -> Result<()> {
         Command::Remove(args) => remove::run(cli, args),
         Command::Start => start::run(cli),
         Command::Stop => stop::run(cli),
-        Command::Restart => restart::run(cli),
+        Command::Restart(args) => restart::run(cli, args),
         Command::Temp(args) => temp::run(cli, args),
     }
 }
