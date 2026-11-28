@@ -7,7 +7,7 @@
 
 ### octorun is a tool that lets you deploy GitHub Actions local runners at blazingly fast speeds!
 
-<img src="assets/demo.gif" alt="Demo gif" width="720" />
+<img src="assets/demo.gif" alt="Demo gif" width="810" />
 
 # Installation
 
