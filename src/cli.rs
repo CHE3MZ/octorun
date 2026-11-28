@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::builder::styling::{AnsiColor, RgbColor, Styles};
+use clap::builder::styling::{AnsiColor, RgbColor, Style, Styles};
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 
 use crate::runner::RunnerPlatform;
@@ -171,12 +171,36 @@ pub(crate) fn entry() -> ExitCode {
     }
 }
 
-fn styles() -> Styles {
+fn truecolor() -> bool {
+    std::env::var("COLORTERM").is_ok_and(|value| value == "truecolor" || value == "24bit")
+}
+
+fn accent_style(truecolor: bool) -> Style {
+    if truecolor {
+        ACCENT_BLUE.on_default()
+    } else {
+        AnsiColor::Cyan.on_default()
+    }
+}
+
+fn heading_style(truecolor: bool) -> Style {
+    if truecolor {
+        HEADING_GREEN.on_default()
+    } else {
+        AnsiColor::Green.on_default()
+    }
+}
+
+fn styles_for(truecolor: bool) -> Styles {
     Styles::styled()
-        .header(HEADING_GREEN.on_default().bold())
-        .usage(HEADING_GREEN.on_default().bold())
-        .literal(ACCENT_BLUE.on_default().bold())
-        .placeholder(ACCENT_BLUE.on_default())
+        .header(heading_style(truecolor).bold())
+        .usage(heading_style(truecolor).bold())
+        .literal(accent_style(truecolor).bold())
+        .placeholder(accent_style(truecolor))
+}
+
+fn styles() -> Styles {
+    styles_for(truecolor())
 }
 
 fn styled_about() -> String {
@@ -188,7 +212,7 @@ fn styled_about() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ABOUT_TEXT, ACCENT_BLUE, Cli, Command, HEADING_GREEN, styled_about, styles};
+    use super::{ABOUT_TEXT, ACCENT_BLUE, Cli, Command, HEADING_GREEN, styled_about, styles_for};
     use crate::runner::RunnerPlatform;
     use clap::Parser;
     use clap::builder::styling::{AnsiColor, Color, Effects};
@@ -309,8 +333,8 @@ mod tests {
     }
 
     #[test]
-    fn accent_and_heading_colors_are_set() {
-        let styles = styles();
+    fn brand_colors_are_used_with_truecolor() {
+        let styles = styles_for(true);
 
         assert_eq!(
             (*styles.get_literal()).get_fg_color(),
@@ -327,6 +351,28 @@ mod tests {
         assert_eq!(
             (*styles.get_usage()).get_fg_color(),
             Some(Color::Rgb(HEADING_GREEN))
+        );
+    }
+
+    #[test]
+    fn ansi_colors_are_used_without_truecolor() {
+        let styles = styles_for(false);
+
+        assert_eq!(
+            (*styles.get_literal()).get_fg_color(),
+            Some(Color::Ansi(AnsiColor::Cyan))
+        );
+        assert_eq!(
+            (*styles.get_placeholder()).get_fg_color(),
+            Some(Color::Ansi(AnsiColor::Cyan))
+        );
+        assert_eq!(
+            (*styles.get_header()).get_fg_color(),
+            Some(Color::Ansi(AnsiColor::Green))
+        );
+        assert_eq!(
+            (*styles.get_usage()).get_fg_color(),
+            Some(Color::Ansi(AnsiColor::Green))
         );
     }
 

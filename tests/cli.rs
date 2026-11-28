@@ -56,6 +56,7 @@ fn help_uses_styled_colors_when_forced() {
     let mut cmd = Command::cargo_bin("octorun").unwrap();
     let output = cmd
         .env("CLICOLOR_FORCE", "1")
+        .env("COLORTERM", "truecolor")
         .env_remove("NO_COLOR")
         .arg("help")
         .output()
