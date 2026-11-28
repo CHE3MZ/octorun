@@ -6,7 +6,7 @@ use super::cleanup::{DirGuard, cancel_flag};
 use super::create::{self, Context};
 use super::{deregister, runner_dir};
 use crate::cli::{Cli, TempArgs};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runner::process;
 
 /// Create a temporary runner, wait for it, then remove it.
@@ -18,6 +18,12 @@ use crate::runner::process;
 ///
 /// Returns an error if the runner cannot be created, started, or removed.
 pub fn run(cli: &Cli, args: &TempArgs) -> Result<()> {
+    if args.create.no_configuration {
+        return Err(Error::Config(
+            "temp runners must be registered, so --no-configuration cannot be used".to_owned(),
+        ));
+    }
+
     let cancelled = cancel_flag()?;
     let mut guard = DirGuard::new(runner_dir(cli));
 

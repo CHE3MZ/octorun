@@ -150,7 +150,27 @@ impl Client {
         if tokens.is_empty() {
             return Err(Error::MissingToken);
         }
+        Self::build(base_url, tokens)
+    }
 
+    /// Create a client that sends no token.
+    ///
+    /// Public endpoints such as the `actions/runner` releases accept anonymous
+    /// requests.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be built.
+    pub fn anonymous(host: &str) -> Result<Self> {
+        let base_url = if host == "github.com" {
+            "https://api.github.com".to_owned()
+        } else {
+            format!("https://{host}/api/v3")
+        };
+        Self::build(base_url, Vec::new())
+    }
+
+    fn build(base_url: impl Into<String>, tokens: Vec<String>) -> Result<Self> {
         let http = HttpClient::builder()
             .user_agent(concat!("octorun/", env!("CARGO_PKG_VERSION")))
             .timeout(Duration::from_secs(30))
@@ -203,11 +223,18 @@ impl Client {
         Ok(token)
     }
 
-    fn send<T: DeserializeOwned>(&self, build: impl Fn(&str) -> RequestBuilder) -> Result<T> {
+    fn send<T: DeserializeOwned>(
+        &self,
+        build: impl Fn(Option<&str>) -> RequestBuilder,
+    ) -> Result<T> {
+        if self.tokens.is_empty() {
+            return decode(Self::send_with_retries(|| build(None))?);
+        }
+
         let mut last_unauthorized = None;
 
         for token in &self.tokens {
-            let response = Self::send_with_retries(|| build(token))?;
+            let response = Self::send_with_retries(|| build(Some(token)))?;
             if response.status() == StatusCode::UNAUTHORIZED {
                 tracing::debug!("GitHub rejected a token, trying the next one");
                 last_unauthorized = Some(response);
@@ -247,11 +274,14 @@ impl Client {
         }
     }
 
-    fn authorized(request: RequestBuilder, token: &str) -> RequestBuilder {
-        request
+    fn authorized(request: RequestBuilder, token: Option<&str>) -> RequestBuilder {
+        let request = request
             .header(ACCEPT, ACCEPT_JSON)
-            .header(AUTHORIZATION, format!("Bearer {token}"))
-            .header("X-GitHub-Api-Version", API_VERSION)
+            .header("X-GitHub-Api-Version", API_VERSION);
+        match token {
+            Some(token) => request.header(AUTHORIZATION, format!("Bearer {token}")),
+            None => request,
+        }
     }
 }
 
@@ -373,6 +403,18 @@ mod tests {
                 .to_ascii_lowercase()
                 .contains("authorization: bearer secret")
         );
+    }
+
+    #[test]
+    fn anonymous_client_omits_authorization() {
+        let (base, server) = serve_once("200 OK", r#"{"tag_name":"v2.300.0"}"#);
+        let client = Client::build(base, Vec::new()).unwrap();
+
+        let release = client.latest_runner_release().unwrap();
+        let requests = server.join().unwrap();
+
+        assert_eq!(release.version(), "2.300.0");
+        assert!(!requests[0].to_ascii_lowercase().contains("authorization"));
     }
 
     #[test]

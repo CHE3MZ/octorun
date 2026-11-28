@@ -102,6 +102,10 @@ pub struct CreateArgs {
     /// Add the runner at the Organization level with the organization's name.
     #[arg(long, value_name = "ORG", display_order = 60)]
     pub org: Option<String>,
+
+    /// Download the runner without registering or configuring it.
+    #[arg(long, display_order = 70)]
+    pub no_configuration: bool,
 }
 
 /// Options accepted by `octorun remove`.
@@ -185,6 +189,16 @@ mod tests {
         assert_eq!(args.labels.as_deref(), Some("self-hosted,linux"));
         assert_eq!(args.org.as_deref(), Some("acme"));
         assert!(args.enterprise.is_none());
+        assert!(!args.no_configuration);
+    }
+
+    #[test]
+    fn create_no_configuration_flag_parses() {
+        let cli = Cli::try_parse_from(["octorun", "create", "--no-configuration"]).unwrap();
+        let Command::Create(args) = cli.command else {
+            panic!("expected create subcommand");
+        };
+        assert!(args.no_configuration);
     }
 
     #[test]

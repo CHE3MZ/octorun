@@ -22,6 +22,9 @@ pub(crate) struct Context {
 
 /// Create a runner from the given arguments.
 ///
+/// With `--no-configuration`, download and extract the runner and write the
+/// `.gitignore`, then skip registration and configuration.
+///
 /// # Errors
 ///
 /// Returns an error if the repository, target, or token cannot be resolved, the
@@ -29,6 +32,21 @@ pub(crate) struct Context {
 pub fn run(cli: &Cli, args: &CreateArgs) -> Result<()> {
     let cancelled = cancel_flag()?;
     let mut guard = DirGuard::new(runner_dir(cli));
+
+    if args.no_configuration {
+        let runner_dir = prepare_dir(cli, args, Some(&cancelled))?;
+        let platform = resolve_platform(args)?;
+        let api = Client::anonymous("github.com")?;
+        install_runner(&api, args, &runner_dir, platform, Some(&cancelled))?;
+
+        guard.disarm();
+        tracing::info!(
+            "downloaded runner `{}` to {} without configuring it",
+            cli.name,
+            runner_dir.display()
+        );
+        return Ok(());
+    }
 
     let context = prepare(cli, args, false, Some(&cancelled), false)?;
     guard.disarm();
@@ -58,24 +76,7 @@ pub(crate) fn prepare(
     cancel: Option<&AtomicBool>,
     cleanup_on_error: bool,
 ) -> Result<Context> {
-    validate_name(&cli.name)?;
-    check_cancel(cancel)?;
-
-    let runner_dir = runner_dir(cli);
-    if let Some(parent) = runner_dir.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    if runner_dir.exists() {
-        if !args.overwrite {
-            return Err(Error::Config(format!(
-                "runner directory `{}` already exists; use --overwrite to replace it",
-                runner_dir.display()
-            )));
-        }
-        fs::remove_dir_all(&runner_dir)?;
-        tracing::info!("removed existing runner directory {}", runner_dir.display());
-    }
+    let runner_dir = prepare_dir(cli, args, cancel)?;
 
     let repository = match &cli.repo {
         Some(reference) => Repository::parse(reference)?,
@@ -85,24 +86,13 @@ pub(crate) fn prepare(
 
     let scope = scope_for(&repository, args.org.as_deref(), args.enterprise.as_deref())?;
     let url = runner_url(host, &scope);
-    let platform = match args.platform {
-        Some(platform) => platform,
-        None => RunnerPlatform::detect()?,
-    };
+    let platform = resolve_platform(args)?;
 
     check_cancel(cancel)?;
     let tokens = resolve_tokens_with(cli.token.as_deref(), host)?;
     let api = Client::with_tokens(host, tokens)?;
 
-    fs::create_dir_all(&runner_dir)?;
-    write_gitignore(&runner_dir)?;
-    install::install(
-        &api,
-        args.location.as_deref(),
-        &runner_dir,
-        platform,
-        cancel,
-    )?;
+    install_runner(&api, args, &runner_dir, platform, cancel)?;
 
     check_cancel(cancel)?;
     let registration_token = api.runner_token(&scope, TokenKind::Registration)?;
@@ -134,6 +124,48 @@ pub(crate) fn prepare(
         host: host.to_owned(),
         scope,
     })
+}
+
+fn prepare_dir(cli: &Cli, args: &CreateArgs, cancel: Option<&AtomicBool>) -> Result<PathBuf> {
+    validate_name(&cli.name)?;
+    check_cancel(cancel)?;
+
+    let runner_dir = runner_dir(cli);
+    if let Some(parent) = runner_dir.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    if runner_dir.exists() {
+        if !args.overwrite {
+            return Err(Error::Config(format!(
+                "runner directory `{}` already exists; use --overwrite to replace it",
+                runner_dir.display()
+            )));
+        }
+        fs::remove_dir_all(&runner_dir)?;
+        tracing::info!("removed existing runner directory {}", runner_dir.display());
+    }
+
+    Ok(runner_dir)
+}
+
+fn resolve_platform(args: &CreateArgs) -> Result<RunnerPlatform> {
+    match args.platform {
+        Some(platform) => Ok(platform),
+        None => RunnerPlatform::detect(),
+    }
+}
+
+fn install_runner(
+    api: &Client,
+    args: &CreateArgs,
+    runner_dir: &Path,
+    platform: RunnerPlatform,
+    cancel: Option<&AtomicBool>,
+) -> Result<()> {
+    fs::create_dir_all(runner_dir)?;
+    write_gitignore(runner_dir)?;
+    install::install(api, args.location.as_deref(), runner_dir, platform, cancel)
 }
 
 fn check_cancel(cancel: Option<&AtomicBool>) -> Result<()> {
