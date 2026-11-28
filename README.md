@@ -86,7 +86,7 @@ octorun temp
 for more detailed help text run the `help` command:
 
 ```sh
-octorun help <COMMAND>
+octorun help
 ```
 
 # Development
