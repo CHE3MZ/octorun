@@ -56,7 +56,12 @@ pub fn download_with_cancel(url: &str, dest: &Path, cancel: Option<&AtomicBool>)
 
         match transfer(&client, url, dest, cancel) {
             Ok(bytes) => {
-                tracing::info!("downloaded {bytes} bytes to {}", dest.display());
+                let name = artifact_name(url);
+                let path = dest
+                    .display()
+                    .to_string()
+                    .replace(name, &crate::ui::underlined(name));
+                tracing::info!("downloaded {bytes} bytes to {path}");
                 return Ok(bytes);
             }
             Err(error) => {
@@ -96,13 +101,15 @@ pub fn sha256_file(path: &Path) -> Result<String> {
 
 fn transfer(client: &Client, url: &str, dest: &Path, cancel: Option<&AtomicBool>) -> Result<u64> {
     let mut response = client.get(url).send()?.error_for_status()?;
-    let label = download_label(url);
+    let name = artifact_name(url);
+    let artifact = crate::ui::underlined(name);
+    let label = format!("Downloading {artifact}");
     let bar = response
         .content_length()
         .and_then(|total| crate::ui::download_bar(total, &label));
 
     if bar.is_none() {
-        tracing::info!("downloading {url}");
+        tracing::info!("downloading {artifact}");
     }
 
     let result = copy_response(&mut response, dest, cancel, bar.as_ref());
@@ -143,17 +150,14 @@ fn copy_response(
     Ok(bytes)
 }
 
-fn download_label(url: &str) -> String {
-    let name = url
-        .split(['?', '#'])
+fn artifact_name(url: &str) -> &str {
+    url.split(['?', '#'])
         .next()
         .unwrap_or(url)
         .rsplit('/')
         .next()
         .filter(|name| !name.is_empty())
-        .unwrap_or("runner");
-
-    format!("Downloading {name}")
+        .unwrap_or("runner")
 }
 
 fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {

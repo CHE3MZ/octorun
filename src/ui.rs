@@ -46,6 +46,12 @@ pub(crate) fn styled_label(level: Level, id: usize) -> String {
     format!("{painted}{id}")
 }
 
+/// Underline an artifact name for stderr.
+#[must_use]
+pub(crate) fn underlined(name: &str) -> String {
+    style(name).underlined().for_stderr().to_string()
+}
+
 /// Create a download progress bar when stderr is a terminal.
 #[must_use]
 pub(crate) fn download_bar(total: u64, message: &str) -> Option<ProgressBar> {
