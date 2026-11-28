@@ -77,6 +77,27 @@ pub(crate) fn prepare(
     cancel: Option<&AtomicBool>,
     cleanup_on_error: bool,
 ) -> Result<Context> {
+    prepare_with(
+        cli,
+        args,
+        ephemeral,
+        cancel,
+        cleanup_on_error,
+        |cli, host| {
+            let tokens = resolve_tokens_with(cli.token.as_deref(), host)?;
+            Client::with_tokens(host, tokens)
+        },
+    )
+}
+
+fn prepare_with(
+    cli: &Cli,
+    args: &CreateArgs,
+    ephemeral: bool,
+    cancel: Option<&AtomicBool>,
+    cleanup_on_error: bool,
+    client_for: impl FnOnce(&Cli, &str) -> Result<Client>,
+) -> Result<Context> {
     let runner_dir = prepare_dir(cli, args, cancel)?;
 
     let repository = match &cli.repo {
@@ -90,8 +111,7 @@ pub(crate) fn prepare(
     let platform = resolve_platform(args)?;
 
     check_cancel(cancel)?;
-    let tokens = resolve_tokens_with(cli.token.as_deref(), host)?;
-    let api = Client::with_tokens(host, tokens)?;
+    let api = client_for(cli, host)?;
 
     prepare_runner(
         &api,
@@ -239,7 +259,10 @@ mod tests {
     use flate2::Compression;
     use flate2::write::GzEncoder;
 
-    use super::{install_runner, prepare_dir, prepare_runner, resolve_platform, write_gitignore};
+    use super::{
+        install_runner, prepare_dir, prepare_runner, prepare_with, resolve_platform,
+        write_gitignore,
+    };
     use crate::cli::{Cli, Command, CreateArgs};
     use crate::github::{Client, Scope};
     use crate::runner::RunnerPlatform;
@@ -440,6 +463,26 @@ mod tests {
         assert!(recorded.contains("https://github.com/acme/app"));
         assert!(recorded.contains("--token"));
         assert!(recorded.contains("registration-token"));
+    }
+
+    #[test]
+    fn prepares_a_runner_with_an_injected_client() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = write_archive(dir.path(), 0);
+        let (cli, args) = create_args(dir.path(), &archive);
+        let (base, server) = serve_registration_token();
+
+        let context = prepare_with(&cli, &args, false, None, true, |_, _| {
+            Client::with_base_url(&base, "secret")
+        })
+        .unwrap();
+        server.join().unwrap();
+
+        assert_eq!(
+            fs::read_to_string(context.runner_dir.join(".gitignore")).unwrap(),
+            "*\n"
+        );
+        assert!(context.runner_dir.join("args.txt").exists());
     }
 
     #[test]

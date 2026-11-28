@@ -16,25 +16,26 @@ const TOKEN_ENV_VARS: [&str; 2] = ["GH_TOKEN", "GITHUB_TOKEN"];
 ///
 /// Returns [`Error::MissingToken`] when no token can be found.
 pub fn resolve_tokens(host: &str) -> Result<Vec<String>> {
-    let mut tokens = Vec::new();
+    let env_tokens = TOKEN_ENV_VARS
+        .iter()
+        .filter_map(|name| env::var(name).ok())
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
 
-    for name in TOKEN_ENV_VARS {
-        if let Ok(value) = env::var(name) {
-            let value = value.trim();
-            if !value.is_empty() {
-                push_unique(&mut tokens, value.to_owned());
-            }
-        }
+    collect_tokens(env_tokens.chain(token_from_gh(host)))
+}
+
+fn collect_tokens(tokens: impl IntoIterator<Item = String>) -> Result<Vec<String>> {
+    let mut unique = Vec::new();
+
+    for token in tokens {
+        push_unique(&mut unique, token);
     }
 
-    if let Some(token) = token_from_gh(host) {
-        push_unique(&mut tokens, token);
-    }
-
-    if tokens.is_empty() {
+    if unique.is_empty() {
         Err(Error::MissingToken)
     } else {
-        Ok(tokens)
+        Ok(unique)
     }
 }
 
@@ -69,14 +70,17 @@ pub fn resolve_token(host: &str) -> Result<String> {
 }
 
 fn token_from_gh(host: &str) -> Option<String> {
+    let output = gh_command(host).output().ok()?;
+    token_from_output(output.status.success(), &output.stdout)
+}
+
+fn gh_command(host: &str) -> Command {
     let mut command = Command::new("gh");
     command.args(["auth", "token"]);
     if host != "github.com" {
         command.args(["--hostname", host]);
     }
-
-    let output = command.output().ok()?;
-    token_from_output(output.status.success(), &output.stdout)
+    command
 }
 
 fn token_from_output(success: bool, stdout: &[u8]) -> Option<String> {
@@ -101,7 +105,10 @@ fn push_unique(tokens: &mut Vec<String>, token: String) {
 
 #[cfg(test)]
 mod tests {
-    use super::{push_unique, resolve_tokens_with, token_from_output};
+    use std::ffi::OsStr;
+
+    use super::{collect_tokens, gh_command, push_unique, resolve_tokens_with, token_from_output};
+    use crate::error::Error;
 
     #[test]
     fn deduplicates_tokens_in_order() {
@@ -128,5 +135,30 @@ mod tests {
         assert_eq!(token_from_output(false, b"tok"), None);
         assert_eq!(token_from_output(true, b"   "), None);
         assert_eq!(token_from_output(true, &[0xff]), None);
+    }
+
+    #[test]
+    fn collects_and_deduplicates_tokens() {
+        assert!(matches!(
+            collect_tokens(Vec::<String>::new()),
+            Err(Error::MissingToken)
+        ));
+        assert_eq!(
+            collect_tokens(["a".to_owned(), "a".to_owned(), "b".to_owned()]).unwrap(),
+            ["a", "b"]
+        );
+    }
+
+    #[test]
+    fn builds_the_gh_command_for_the_host() {
+        let github = gh_command("github.com");
+        let args: Vec<_> = github.get_args().collect();
+        assert!(args.contains(&OsStr::new("auth")));
+        assert!(!args.contains(&OsStr::new("--hostname")));
+
+        let enterprise = gh_command("github.example.com");
+        let args: Vec<_> = enterprise.get_args().collect();
+        assert!(args.contains(&OsStr::new("--hostname")));
+        assert!(args.contains(&OsStr::new("github.example.com")));
     }
 }
