@@ -20,6 +20,7 @@ pub fn log_path(dir: &Path) -> PathBuf {
 
 /// How a watched runner process finished.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum WaitOutcome {
     /// The process exited on its own.
     Exited(ExitStatus),

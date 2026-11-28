@@ -1,5 +1,6 @@
 //! `octorun restart` — restart a runner started by octorun.
 
+use std::path::Path;
 use std::time::Duration;
 
 use super::{runner_dir, validate_name};
@@ -21,23 +22,24 @@ const EXIT_TIMEOUT: Duration = Duration::from_secs(10);
 /// stopped, it does not exit in time, or the new process cannot be started.
 pub fn run(cli: &Cli, args: &RestartArgs) -> Result<()> {
     validate_name(&cli.name)?;
-    let dir = runner_dir(cli);
+    restart(&runner_dir(cli), &cli.name, args.if_running)
+}
 
-    let running = process::stop_if_running(&dir)?;
+pub(crate) fn restart(dir: &Path, name: &str, if_running: bool) -> Result<()> {
+    let running = process::stop_if_running(dir)?;
 
     if let Some(pid) = running {
-        tracing::info!("stopped runner `{}` (pid {pid})", cli.name);
+        tracing::info!("stopped runner `{name}` (pid {pid})");
         process::wait_for_exit(pid, EXIT_TIMEOUT)?;
-    } else if args.if_running {
-        tracing::info!("runner `{}` is not running", cli.name);
+    } else if if_running {
+        tracing::info!("runner `{name}` is not running");
         return Ok(());
     }
 
-    let pid = process::start(&dir)?;
+    let pid = process::start(dir)?;
     tracing::info!(
-        "started runner `{}` with pid {pid}; logs at {}",
-        cli.name,
-        process::log_path(&dir).display()
+        "started runner `{name}` with pid {pid}; logs at {}",
+        process::log_path(dir).display()
     );
     Ok(())
 }

@@ -18,6 +18,7 @@ const BACKOFF: Duration = Duration::from_millis(200);
 
 /// The scope a runner is registered in.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Scope {
     /// A single repository.
     Repository {
@@ -44,6 +45,7 @@ impl Scope {
 
 /// The kind of runner token to request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TokenKind {
     /// Token used to register a new runner.
     Registration,
@@ -62,6 +64,7 @@ impl TokenKind {
 
 /// The latest release of the `actions/runner` repository.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct Release {
     /// The release tag, e.g. `v2.300.0`.
     #[serde(rename = "tag_name")]
@@ -73,6 +76,7 @@ pub struct Release {
 
 /// A release asset, including its GitHub-published digest.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct ReleaseAsset {
     /// Asset file name.
     pub name: String,

@@ -1,8 +1,10 @@
 //! Command-line interface definitions for the `octorun` binary.
 
 use std::path::PathBuf;
+use std::process::ExitCode;
 
-use clap::{Args, Parser, Subcommand};
+use clap::builder::styling::{AnsiColor, RgbColor, Styles};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 
 use crate::runner::RunnerPlatform;
 
@@ -143,11 +145,53 @@ pub struct TempArgs {
     pub create: CreateArgs,
 }
 
+const ABOUT_TEXT: &str = "Create self hosted GitHub Actions runners";
+const ACCENT_BLUE: RgbColor = RgbColor(41, 184, 219);
+const HEADING_GREEN: RgbColor = RgbColor(35, 209, 139);
+
+/// Parse the command line, initialise logging, and run the selected command.
+pub(crate) fn entry() -> ExitCode {
+    let matches = Cli::command()
+        .about(styled_about())
+        .styles(styles())
+        .get_matches();
+    let cli = match Cli::from_arg_matches(&matches) {
+        Ok(cli) => cli,
+        Err(error) => error.exit(),
+    };
+
+    crate::logging::init(cli.verbose);
+
+    match crate::commands::run(&cli) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            tracing::error!("{error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn styles() -> Styles {
+    Styles::styled()
+        .header(HEADING_GREEN.on_default().bold())
+        .usage(HEADING_GREEN.on_default().bold())
+        .literal(ACCENT_BLUE.on_default().bold())
+        .placeholder(ACCENT_BLUE.on_default())
+}
+
+fn styled_about() -> String {
+    let style = AnsiColor::White.on_default().bold();
+    let start = style.render();
+    let end = style.render_reset();
+    format!("{start}{ABOUT_TEXT}{end}")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Command};
+    use super::{ABOUT_TEXT, ACCENT_BLUE, Cli, Command, HEADING_GREEN, styled_about, styles};
     use crate::runner::RunnerPlatform;
     use clap::Parser;
+    use clap::builder::styling::{AnsiColor, Color, Effects};
 
     #[test]
     fn global_defaults() {
@@ -262,5 +306,39 @@ mod tests {
     #[test]
     fn rejects_unknown_platform() {
         assert!(Cli::try_parse_from(["octorun", "create", "-p", "plan9-amd64"]).is_err());
+    }
+
+    #[test]
+    fn accent_and_heading_colors_are_set() {
+        let styles = styles();
+
+        assert_eq!(
+            (*styles.get_literal()).get_fg_color(),
+            Some(Color::Rgb(ACCENT_BLUE))
+        );
+        assert_eq!(
+            (*styles.get_placeholder()).get_fg_color(),
+            Some(Color::Rgb(ACCENT_BLUE))
+        );
+        assert_eq!(
+            (*styles.get_header()).get_fg_color(),
+            Some(Color::Rgb(HEADING_GREEN))
+        );
+        assert_eq!(
+            (*styles.get_usage()).get_fg_color(),
+            Some(Color::Rgb(HEADING_GREEN))
+        );
+    }
+
+    #[test]
+    fn about_is_bold_white() {
+        let style = AnsiColor::White.on_default().bold();
+        let about = styled_about();
+
+        assert!(about.contains(ABOUT_TEXT));
+        assert!(about.starts_with(&style.render().to_string()));
+        assert!(about.ends_with(&style.render_reset().to_string()));
+        assert_eq!(style.get_fg_color(), Some(Color::Ansi(AnsiColor::White)));
+        assert!(style.get_effects().contains(Effects::BOLD));
     }
 }

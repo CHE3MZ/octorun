@@ -42,3 +42,14 @@ pedantic = { level = "warn", priority = -1 }
 assert_cmd = "2.2.2"
 predicates = "3.1.4"
 tempfile = "3.27.0"
+
+[package.metadata.cargo-semver-checks.lints]
+module_missing = "warn"
+struct_missing = "warn"
+enum_missing = "warn"
+function_missing = "warn"
+enum_marked_non_exhaustive = "warn"
+struct_marked_non_exhaustive = "warn"
+enum_unit_variant_changed_kind = "warn"
+function_parameter_count_changed = "warn"
+constructible_struct_adds_field = "warn"

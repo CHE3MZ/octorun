@@ -52,6 +52,7 @@ pub fn archive_name(version: &str) -> Result<String> {
 
 /// A supported runner platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[non_exhaustive]
 pub enum RunnerPlatform {
     /// Windows on x86-64.
     #[value(name = "windows-amd64")]

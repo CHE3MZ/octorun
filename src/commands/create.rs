@@ -90,7 +90,7 @@ pub(crate) fn prepare(
     )
 }
 
-fn prepare_with(
+pub(crate) fn prepare_with(
     cli: &Cli,
     args: &CreateArgs,
     ephemeral: bool,
