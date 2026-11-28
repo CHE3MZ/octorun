@@ -105,19 +105,12 @@ fn transfer(client: &Client, url: &str, dest: &Path, cancel: Option<&AtomicBool>
     }
 
     let result = copy_response(&mut response, dest, cancel, bar.as_ref());
-    match &result {
-        Ok(bytes) => {
-            if let Some(bar) = bar {
-                bar.finish_with_message(format!("Downloaded {artifact}"));
-            } else {
-                tracing::info!("downloaded {name} ({bytes} bytes)");
-            }
-        }
-        Err(_) => {
-            if let Some(bar) = bar {
-                bar.finish_and_clear();
-            }
-        }
+    if let Some(bar) = bar {
+        bar.finish_and_clear();
+    }
+
+    if let Ok(bytes) = &result {
+        tracing::info!("Download complete: {name} ({bytes} bytes)");
     }
 
     result
