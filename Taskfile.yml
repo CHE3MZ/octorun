@@ -115,7 +115,7 @@ tasks:
     desc: Lint scripts
     ignore_error: true
     cmds:
-      - cmd: find scripts -type f -name '*.sh' -exec shellcheck {} +
+      - cmd: fd -e sh . scripts -x shellcheck
       - cmd: uvx ruff check . --no-cache
       - cmd: uvx ruff format . --check --no-cache
   check-configs:
@@ -155,5 +155,5 @@ tasks:
       - cmd: osv-scanner scan source --recursive .
       - cmd: gitleaks git . --no-banner --verbose
       - cmd: actionlint --verbose
-      - cmd: find scripts -type f -name '*.sh' -exec shellcheck {} +
+      - cmd: fd -e sh . scripts -x shellcheck
       - cmd: scorecard --local . --format json | gron
