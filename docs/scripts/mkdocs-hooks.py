@@ -51,7 +51,10 @@ def on_config(config, **kwargs):
 
     content = _docs_markdown(readme.read_text(encoding="utf-8"))
     repo = config["repo_url"].rstrip("/")
-    raw = repo.replace("https://github.com/", "https://raw.githubusercontent.com/") + "/master"
+    raw = (
+        repo.replace("https://github.com/", "https://raw.githubusercontent.com/")
+        + "/master"
+    )
     content = content.replace("assets/", f"{raw}/assets/")
     content = content.replace("](LICENSE)", f"]({repo}/blob/master/LICENSE)")
 
