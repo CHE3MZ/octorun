@@ -89,11 +89,22 @@ for more detailed help text run the `help` command:
 octorun help
 ```
 
+# CI
+
+<img src="assets/ci.png" alt="actions" width="228" />
+
+### If you want to create new empty runners that are **NOT** configured, use the `--no-configuration` flag with the `create` command:
+
+```sh
+octorun create --no-configuration
+```
+
 # Development
+
+<img src="assets/development.png" alt="development" width="210" />
 
 To get started, install [go-task](https://taskfile.dev/) (a.k.a [taskfile](https://taskfile.dev/)), you will need it to run a lot of the local CI jobs.
 
-<img src="assets/actions.png" alt="actions" width="64" />
 
 ## Building
 
