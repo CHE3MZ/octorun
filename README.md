@@ -19,15 +19,18 @@
 
 ## Package managers
 
-<img src="assets/homebrew.png" alt="homebrew" width="64" />
+<a href="https://github.com/CHE3MZ/homebrew-tools/blob/master/Formula/octorun.rb">
+  <img src="assets/homebrew.png" alt="homebrew" width="64" />
+</a>
 
 ### Brew
 
 ```sh
 brew install CHE3MZ/tools/octorun
 ```
-
-<img src="assets/cargo.png" alt="cargo" width="64" />
+<a href="https://crates.io/crates/octorun">
+  <img src="assets/cargo.png" alt="cargo" width="64" />
+</a>
 
 ### Cargo install
 
@@ -41,7 +44,9 @@ cargo install --locked octorun
 cargo binstall octorun
 ```
 
-<img src="assets/github.png" alt="github" width="64" />
+<a href="https://github.com/CHE3MZ/octorun/releases/latest">
+  <img src="assets/github.png" alt="github" width="64" />
+</a>
 
 ## From the installation scripts
 
