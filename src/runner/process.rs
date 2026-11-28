@@ -49,6 +49,41 @@ pub fn start(dir: &Path) -> Result<u32> {
 /// Returns an error if the runner is not configured, is already running, or
 /// cannot be spawned.
 pub fn spawn(dir: &Path) -> Result<Child> {
+    let mut command = prepare_command(dir)?;
+    let log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path(dir))?;
+    let log_stderr = log.try_clone()?;
+
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::from(log_stderr));
+
+    spawn_and_record(dir, command)
+}
+
+/// Start the runner in `dir` with the terminal's standard streams.
+///
+/// The caller is expected to wait for the child so the runner keeps the
+/// foreground process group and receives Ctrl+C.
+///
+/// # Errors
+///
+/// Returns an error if the runner is not configured, is already running, or
+/// cannot be spawned.
+pub(crate) fn spawn_interactive(dir: &Path) -> Result<Child> {
+    let mut command = prepare_command(dir)?;
+    command
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    spawn_and_record(dir, command)
+}
+
+fn prepare_command(dir: &Path) -> Result<Command> {
     let script = run_script_name();
     let script_path = dir.join(script);
     if !script_path.exists() {
@@ -67,18 +102,11 @@ pub fn spawn(dir: &Path) -> Result<Child> {
     }
 
     let mut command = script_command(script);
-    let log = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path(dir))?;
-    let log_stderr = log.try_clone()?;
+    command.current_dir(dir);
+    Ok(command)
+}
 
-    command
-        .current_dir(dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(log))
-        .stderr(Stdio::from(log_stderr));
-
+fn spawn_and_record(dir: &Path, mut command: Command) -> Result<Child> {
     let child = command.spawn()?;
     let pid = child.id();
 

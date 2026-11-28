@@ -61,7 +61,7 @@ pub enum Command {
     Remove(RemoveArgs),
 
     /// Start a preconfigured runner.
-    Start,
+    Start(StartArgs),
 
     /// Stop a preconfigured runner.
     Stop,
@@ -71,6 +71,14 @@ pub enum Command {
 
     /// Create a temporary runner and remove it when stopped.
     Temp(TempArgs),
+}
+
+/// Options accepted by `octorun start`.
+#[derive(Debug, Clone, Args)]
+pub struct StartArgs {
+    /// Stream the runner output and stay in the foreground until it stops.
+    #[arg(short, long)]
+    pub interactive: bool,
 }
 
 /// Options accepted by `octorun create`.
@@ -283,6 +291,15 @@ mod tests {
     #[test]
     fn subcommand_is_required() {
         assert!(Cli::try_parse_from(["octorun"]).is_err());
+    }
+
+    #[test]
+    fn start_interactive_parses() {
+        let cli = Cli::try_parse_from(["octorun", "start", "--interactive"]).unwrap();
+        let Command::Start(args) = cli.command else {
+            panic!("expected start subcommand");
+        };
+        assert!(args.interactive);
     }
 
     #[test]

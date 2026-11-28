@@ -25,7 +25,7 @@ pub fn run(cli: &Cli) -> Result<()> {
     match &cli.command {
         Command::Create(args) => create::run(cli, args),
         Command::Remove(args) => remove::run(cli, args),
-        Command::Start => start::run(cli),
+        Command::Start(args) => start::run(cli, args),
         Command::Stop => stop::run(cli),
         Command::Restart(args) => restart::run(cli, args),
         Command::Temp(args) => temp::run(cli, args),
