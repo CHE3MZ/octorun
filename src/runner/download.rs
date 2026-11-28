@@ -55,15 +55,7 @@ pub fn download_with_cancel(url: &str, dest: &Path, cancel: Option<&AtomicBool>)
         }
 
         match transfer(&client, url, dest, cancel) {
-            Ok(bytes) => {
-                let name = artifact_name(url);
-                let path = dest
-                    .display()
-                    .to_string()
-                    .replace(name, &crate::ui::underlined(name));
-                tracing::info!("downloaded {bytes} bytes to {path}");
-                return Ok(bytes);
-            }
+            Ok(bytes) => return Ok(bytes),
             Err(error) => {
                 let _ = fs::remove_file(dest);
                 if retryable(&error) && attempt < MAX_ATTEMPTS {
@@ -109,12 +101,23 @@ fn transfer(client: &Client, url: &str, dest: &Path, cancel: Option<&AtomicBool>
         .and_then(|total| crate::ui::download_bar(total, &label));
 
     if bar.is_none() {
-        tracing::info!("downloading {artifact}");
+        tracing::info!("downloading {name}");
     }
 
     let result = copy_response(&mut response, dest, cancel, bar.as_ref());
-    if let Some(bar) = bar {
-        bar.finish_and_clear();
+    match &result {
+        Ok(bytes) => {
+            if let Some(bar) = bar {
+                bar.finish_with_message(format!("Downloaded {artifact}"));
+            } else {
+                tracing::info!("downloaded {name} ({bytes} bytes)");
+            }
+        }
+        Err(_) => {
+            if let Some(bar) = bar {
+                bar.finish_and_clear();
+            }
+        }
     }
 
     result
