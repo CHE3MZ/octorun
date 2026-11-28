@@ -11,9 +11,7 @@ use crate::error::{Error, Result};
 /// Returns [`Error::UnsupportedPlatform`] when the host operating system is not
 /// supported by GitHub's runner releases.
 pub fn os() -> Result<&'static str> {
-    map_os(std::env::consts::OS).ok_or_else(|| {
-        Error::UnsupportedPlatform(format!("operating system `{}`", std::env::consts::OS))
-    })
+    os_for(std::env::consts::OS)
 }
 
 /// The architecture component used in runner archive names.
@@ -23,9 +21,15 @@ pub fn os() -> Result<&'static str> {
 /// Returns [`Error::UnsupportedPlatform`] when the host architecture has no
 /// matching GitHub runner release.
 pub fn arch() -> Result<&'static str> {
-    map_arch(std::env::consts::ARCH).ok_or_else(|| {
-        Error::UnsupportedPlatform(format!("architecture `{}`", std::env::consts::ARCH))
-    })
+    arch_for(std::env::consts::ARCH)
+}
+
+fn os_for(value: &str) -> Result<&'static str> {
+    map_os(value).ok_or_else(|| Error::UnsupportedPlatform(format!("operating system `{value}`")))
+}
+
+fn arch_for(value: &str) -> Result<&'static str> {
+    map_arch(value).ok_or_else(|| Error::UnsupportedPlatform(format!("architecture `{value}`")))
 }
 
 /// The archive extension used for the current operating system.
@@ -77,7 +81,11 @@ impl RunnerPlatform {
     /// Returns [`Error::UnsupportedPlatform`] when the host is not one of the
     /// supported runner platforms.
     pub fn detect() -> Result<Self> {
-        match (os()?, arch()?) {
+        Self::detect_for(std::env::consts::OS, std::env::consts::ARCH)
+    }
+
+    fn detect_for(os: &str, arch: &str) -> Result<Self> {
+        match (os_for(os)?, arch_for(arch)?) {
             ("win", "x64") => Ok(Self::WindowsAmd64),
             ("win", "arm64") => Ok(Self::WindowsArm64),
             ("osx", "x64") => Ok(Self::MacosAmd64),
@@ -149,7 +157,11 @@ fn map_arch(arch: &str) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{RunnerPlatform, archive_extension, archive_name, map_arch, map_os};
+    use super::{
+        RunnerPlatform, arch, arch_for, archive_extension, archive_name, map_arch, map_os, os,
+        os_for,
+    };
+    use crate::error::Error;
 
     #[test]
     fn maps_known_operating_systems() {
@@ -165,6 +177,75 @@ mod tests {
         assert_eq!(map_arch("amd64"), Some("x64"));
         assert_eq!(map_arch("aarch64"), Some("arm64"));
         assert_eq!(map_arch("riscv64"), None);
+    }
+
+    #[test]
+    fn maps_the_remaining_names() {
+        assert_eq!(map_arch("x64"), Some("x64"));
+        assert_eq!(map_arch("arm64"), Some("arm64"));
+        assert_eq!(map_arch("armv7"), Some("arm"));
+        assert_eq!(map_os("osx"), Some("osx"));
+        assert_eq!(map_os("darwin"), Some("osx"));
+        assert_eq!(map_os("mac"), Some("osx"));
+        assert_eq!(map_os("win"), Some("win"));
+    }
+
+    #[test]
+    fn rejects_unsupported_host_components() {
+        assert!(matches!(
+            os_for("freebsd"),
+            Err(Error::UnsupportedPlatform(_))
+        ));
+        assert!(matches!(
+            arch_for("riscv64"),
+            Err(Error::UnsupportedPlatform(_))
+        ));
+    }
+
+    #[test]
+    fn detects_every_supported_pair() {
+        assert_eq!(
+            RunnerPlatform::detect_for("windows", "x86_64").unwrap(),
+            RunnerPlatform::WindowsAmd64
+        );
+        assert_eq!(
+            RunnerPlatform::detect_for("windows", "aarch64").unwrap(),
+            RunnerPlatform::WindowsArm64
+        );
+        assert_eq!(
+            RunnerPlatform::detect_for("macos", "x86_64").unwrap(),
+            RunnerPlatform::MacosAmd64
+        );
+        assert_eq!(
+            RunnerPlatform::detect_for("macos", "arm64").unwrap(),
+            RunnerPlatform::MacosArm64
+        );
+        assert_eq!(
+            RunnerPlatform::detect_for("linux", "x64").unwrap(),
+            RunnerPlatform::LinuxAmd64
+        );
+        assert_eq!(
+            RunnerPlatform::detect_for("linux", "aarch64").unwrap(),
+            RunnerPlatform::LinuxArm64
+        );
+        assert!(matches!(
+            RunnerPlatform::detect_for("linux", "armv7"),
+            Err(Error::UnsupportedPlatform(_))
+        ));
+    }
+
+    #[test]
+    fn host_detection_matches_the_mapped_constants() {
+        assert_eq!(os().unwrap(), map_os(std::env::consts::OS).unwrap());
+        assert_eq!(arch().unwrap(), map_arch(std::env::consts::ARCH).unwrap());
+        assert_eq!(
+            RunnerPlatform::detect().unwrap(),
+            RunnerPlatform::detect_for(std::env::consts::OS, std::env::consts::ARCH).unwrap()
+        );
+        assert_eq!(
+            archive_extension(),
+            if cfg!(windows) { "zip" } else { "tar.gz" }
+        );
     }
 
     #[test]

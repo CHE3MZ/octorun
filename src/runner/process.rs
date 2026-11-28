@@ -226,7 +226,14 @@ fn terminate(pid: u32) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{PID_FILE, read_pid, remove_pid, run_script_name, start, stop, write_pid};
+    use std::fs;
+    use std::path::Path;
+    use std::sync::atomic::AtomicBool;
+
+    use super::{
+        PID_FILE, WaitOutcome, log_path, pid_path, read_pid, remove_pid, run_script_name, spawn,
+        start, stop, wait, write_pid,
+    };
 
     #[test]
     fn records_and_clears_pid_file() {
@@ -257,5 +264,122 @@ mod tests {
     fn stop_requires_recorded_process() {
         let dir = tempfile::tempdir().unwrap();
         assert!(stop(dir.path()).is_err());
+    }
+
+    #[cfg(unix)]
+    fn instant_script() -> &'static str {
+        "#!/bin/sh\nexit 0\n"
+    }
+
+    #[cfg(windows)]
+    fn instant_script() -> &'static str {
+        "@exit /b 0\r\n"
+    }
+
+    #[cfg(unix)]
+    fn sleeping_script() -> &'static str {
+        "#!/bin/sh\nsleep 30\n"
+    }
+
+    #[cfg(windows)]
+    fn sleeping_script() -> &'static str {
+        "@ping -n 30 127.0.0.1 >NUL\r\n"
+    }
+
+    fn write_run_script(dir: &Path, body: &str) {
+        let path = dir.join(run_script_name());
+        fs::write(&path, body).unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mut permissions = fs::metadata(&path).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&path, permissions).unwrap();
+        }
+    }
+
+    const DEAD_PID: u32 = 4_294_967_294;
+
+    #[test]
+    fn records_the_log_path() {
+        assert!(log_path(Path::new("runner")).ends_with(".octorun.log"));
+    }
+
+    #[test]
+    fn spawns_and_waits_for_the_runner() {
+        let dir = tempfile::tempdir().unwrap();
+        write_run_script(dir.path(), instant_script());
+
+        let mut child = spawn(dir.path()).unwrap();
+        assert!(dir.path().join(PID_FILE).exists());
+
+        let outcome = wait(&mut child, &AtomicBool::new(false)).unwrap();
+        assert!(matches!(outcome, WaitOutcome::Exited(status) if status.success()));
+    }
+
+    #[test]
+    fn spawn_rejects_a_running_runner() {
+        let dir = tempfile::tempdir().unwrap();
+        write_run_script(dir.path(), instant_script());
+        write_pid(dir.path(), std::process::id()).unwrap();
+
+        assert!(spawn(dir.path()).is_err());
+    }
+
+    #[test]
+    fn spawn_replaces_a_stale_pid() {
+        let dir = tempfile::tempdir().unwrap();
+        write_run_script(dir.path(), instant_script());
+        write_pid(dir.path(), DEAD_PID).unwrap();
+
+        let mut child = spawn(dir.path()).unwrap();
+        let outcome = wait(&mut child, &AtomicBool::new(false)).unwrap();
+
+        assert!(matches!(outcome, WaitOutcome::Exited(_)));
+    }
+
+    #[test]
+    fn wait_reports_cancellation() {
+        let dir = tempfile::tempdir().unwrap();
+        write_run_script(dir.path(), sleeping_script());
+
+        let mut child = spawn(dir.path()).unwrap();
+        let outcome = wait(&mut child, &AtomicBool::new(true)).unwrap();
+        assert!(matches!(outcome, WaitOutcome::Cancelled));
+
+        stop(dir.path()).unwrap();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn stop_terminates_the_recorded_process() {
+        let dir = tempfile::tempdir().unwrap();
+        write_run_script(dir.path(), sleeping_script());
+
+        let mut child = spawn(dir.path()).unwrap();
+        let pid = stop(dir.path()).unwrap();
+
+        assert_eq!(pid, child.id());
+        assert!(!dir.path().join(PID_FILE).exists());
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn stop_tolerates_a_dead_process() {
+        let dir = tempfile::tempdir().unwrap();
+        write_pid(dir.path(), DEAD_PID).unwrap();
+
+        assert_eq!(stop(dir.path()).unwrap(), DEAD_PID);
+        assert!(!dir.path().join(PID_FILE).exists());
+    }
+
+    #[test]
+    fn reads_invalid_pid_contents_as_none() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(pid_path(dir.path()), "not-a-pid").unwrap();
+
+        assert_eq!(read_pid(dir.path()).unwrap(), None);
     }
 }

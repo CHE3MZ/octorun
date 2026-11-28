@@ -151,14 +151,40 @@ mod tests {
     use std::fs;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::sync::atomic::AtomicBool;
     use std::thread::JoinHandle;
 
     use flate2::Compression;
     use flate2::write::GzEncoder;
+    use sha2::{Digest, Sha256};
 
-    use super::{archive_file_name, copy_dir, install, is_url, verify_digest};
+    use super::{archive_file_name, copy_dir, install, install_from_url, is_url, verify_digest};
+    use crate::error::Error;
     use crate::github::Client;
     use crate::runner::RunnerPlatform;
+
+    fn tar_gz_bytes() -> Vec<u8> {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+        {
+            let mut builder = tar::Builder::new(&mut encoder);
+            let data = b"#!/bin/sh\n";
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o755);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, "config.sh", &data[..])
+                .unwrap();
+            builder.finish().unwrap();
+        }
+        encoder.finish().unwrap()
+    }
+
+    fn digest_of(bytes: &[u8]) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        hex::encode(hasher.finalize())
+    }
 
     fn serve_once(body: Vec<u8>) -> (String, JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -238,22 +264,151 @@ mod tests {
     }
 
     #[test]
-    fn installs_from_a_url_with_a_staging_archive_inside_dest() {
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
-        {
-            let mut builder = tar::Builder::new(&mut encoder);
-            let data = b"#!/bin/sh\n";
-            let mut header = tar::Header::new_gnu();
-            header.set_size(data.len() as u64);
-            header.set_mode(0o755);
-            header.set_cksum();
-            builder
-                .append_data(&mut header, "config.sh", &data[..])
-                .unwrap();
-            builder.finish().unwrap();
-        }
-        let bytes = encoder.finish().unwrap();
+    fn installs_from_a_directory() {
+        let source = tempfile::tempdir().unwrap();
+        fs::write(source.path().join("run.sh"), b"#!/bin/sh").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("runner");
+        let client = Client::with_base_url("http://127.0.0.1:1", "token").unwrap();
 
+        install(
+            &client,
+            Some(source.path().to_str().unwrap()),
+            &dest,
+            RunnerPlatform::LinuxAmd64,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(fs::read(dest.join("run.sh")).unwrap(), b"#!/bin/sh");
+    }
+
+    #[test]
+    fn installs_from_a_local_archive() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("runner.tar.gz");
+        fs::write(&archive, tar_gz_bytes()).unwrap();
+        let dest = dir.path().join("runner");
+        let client = Client::with_base_url("http://127.0.0.1:1", "token").unwrap();
+
+        install(
+            &client,
+            Some(archive.to_str().unwrap()),
+            &dest,
+            RunnerPlatform::LinuxAmd64,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(dest.join("config.sh")).unwrap(),
+            "#!/bin/sh\n"
+        );
+    }
+
+    #[test]
+    fn rejects_a_missing_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing");
+        let client = Client::with_base_url("http://127.0.0.1:1", "token").unwrap();
+
+        let error = install(
+            &client,
+            Some(missing.to_str().unwrap()),
+            &dir.path().join("runner"),
+            RunnerPlatform::LinuxAmd64,
+            None,
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, Error::Config(_)));
+    }
+
+    #[test]
+    fn installs_from_a_url_with_a_digest() {
+        let bytes = tar_gz_bytes();
+        let digest = format!("sha256:{}", digest_of(&bytes));
+        let (url, server) = serve_once(bytes);
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("runner");
+
+        install_from_url(&url, &dest, Some(&digest), None).unwrap();
+        server.join().unwrap();
+
+        assert_eq!(
+            fs::read_to_string(dest.join("config.sh")).unwrap(),
+            "#!/bin/sh\n"
+        );
+    }
+
+    #[test]
+    fn rejects_a_bad_url_digest() {
+        let (url, server) = serve_once(tar_gz_bytes());
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("runner");
+
+        let error = install_from_url(&url, &dest, Some("sha256:deadbeef"), None).unwrap_err();
+        server.join().unwrap();
+
+        assert!(matches!(error, Error::Checksum(_)));
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn cancels_before_downloading() {
+        let flag = AtomicBool::new(true);
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("runner");
+
+        let error = install_from_url("http://127.0.0.1:1/runner.tar.gz", &dest, None, Some(&flag))
+            .unwrap_err();
+
+        assert!(matches!(error, Error::Cancelled));
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn installs_the_latest_release_when_location_is_missing() {
+        let bytes = tar_gz_bytes();
+        let digest = digest_of(&bytes);
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let release = format!(
+            r#"{{"tag_name":"v2.1.0","assets":[{{"name":"actions-runner-linux-x64-2.1.0.tar.gz","digest":"sha256:{digest}","browser_download_url":"{base}/runner.tar.gz"}}]}}"#
+        );
+
+        let server = std::thread::spawn(move || {
+            for body in [release.into_bytes(), bytes] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buffer = [0_u8; 2048];
+                let _ = stream.read(&mut buffer);
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(&body).unwrap();
+                stream.flush().unwrap();
+            }
+        });
+
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("runner");
+        let client = Client::with_base_url(&base, "token").unwrap();
+
+        install(&client, None, &dest, RunnerPlatform::LinuxAmd64, None).unwrap();
+        server.join().unwrap();
+
+        assert_eq!(
+            fs::read_to_string(dest.join("config.sh")).unwrap(),
+            "#!/bin/sh\n"
+        );
+    }
+
+    #[test]
+    fn installs_from_a_url_with_a_staging_archive_inside_dest() {
+        let bytes = tar_gz_bytes();
         let (url, server) = serve_once(bytes);
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("runner");

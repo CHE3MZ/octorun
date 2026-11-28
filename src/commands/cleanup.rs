@@ -54,7 +54,13 @@ impl Drop for DirGuard {
 mod tests {
     use std::fs;
 
-    use super::DirGuard;
+    use super::{DirGuard, cancel_flag};
+
+    #[test]
+    fn a_second_handler_installation_fails() {
+        let _ = cancel_flag();
+        assert!(cancel_flag().is_err());
+    }
 
     #[test]
     fn guard_removes_only_new_directories() {

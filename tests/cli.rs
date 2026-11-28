@@ -1,6 +1,8 @@
 use std::fs;
 
 use assert_cmd::Command;
+use flate2::Compression;
+use flate2::write::GzEncoder;
 use predicates::prelude::*;
 use tempfile::tempdir;
 
@@ -214,4 +216,81 @@ fn temp_rejects_unsafe_runner_name() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("invalid runner name"));
+}
+
+fn runner_archive() -> Vec<u8> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    {
+        let mut builder = tar::Builder::new(&mut encoder);
+        for (name, body) in [("runner", "binary"), ("config.sh", "#!/bin/sh\nexit 0\n")] {
+            let data = body.as_bytes();
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o755);
+            header.set_cksum();
+            builder.append_data(&mut header, name, data).unwrap();
+        }
+        builder.finish().unwrap();
+    }
+    encoder.finish().unwrap()
+}
+
+#[test]
+fn create_no_configuration_extracts_without_registering() {
+    let dir = tempdir().unwrap();
+    let archive = dir.path().join("runner.tar.gz");
+    fs::write(&archive, runner_archive()).unwrap();
+
+    let mut cmd = Command::cargo_bin("octorun").unwrap();
+    cmd.args([
+        "-d",
+        dir.path().to_str().unwrap(),
+        "-n",
+        "demo",
+        "create",
+        "--no-configuration",
+        "-l",
+        archive.to_str().unwrap(),
+        "-p",
+        "linux-amd64",
+    ])
+    .assert()
+    .success();
+
+    let runner = dir.path().join("demo");
+    assert_eq!(
+        fs::read_to_string(runner.join(".gitignore")).unwrap(),
+        "*\n"
+    );
+    assert_eq!(fs::read_to_string(runner.join("runner")).unwrap(), "binary");
+    assert!(!runner.join(".runner").exists());
+}
+
+#[test]
+fn temp_rejects_no_configuration() {
+    let dir = tempdir().unwrap();
+    let mut cmd = Command::cargo_bin("octorun").unwrap();
+    cmd.args([
+        "-d",
+        dir.path().to_str().unwrap(),
+        "temp",
+        "--no-configuration",
+    ])
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("must be registered"));
+}
+
+#[test]
+fn remove_deletes_a_runner_without_a_config_script() {
+    let dir = tempdir().unwrap();
+    let runner = dir.path().join("runner");
+    fs::create_dir_all(&runner).unwrap();
+
+    let mut cmd = Command::cargo_bin("octorun").unwrap();
+    cmd.args(["-d", dir.path().to_str().unwrap(), "-n", "runner", "remove"])
+        .assert()
+        .success();
+
+    assert!(!runner.exists());
 }

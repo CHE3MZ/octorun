@@ -76,11 +76,15 @@ fn token_from_gh(host: &str) -> Option<String> {
     }
 
     let output = command.output().ok()?;
-    if !output.status.success() {
+    token_from_output(output.status.success(), &output.stdout)
+}
+
+fn token_from_output(success: bool, stdout: &[u8]) -> Option<String> {
+    if !success {
         return None;
     }
 
-    let token = String::from_utf8(output.stdout).ok()?;
+    let token = String::from_utf8(stdout.to_vec()).ok()?;
     let token = token.trim();
     if token.is_empty() {
         None
@@ -97,7 +101,7 @@ fn push_unique(tokens: &mut Vec<String>, token: String) {
 
 #[cfg(test)]
 mod tests {
-    use super::{push_unique, resolve_tokens_with};
+    use super::{push_unique, resolve_tokens_with, token_from_output};
 
     #[test]
     fn deduplicates_tokens_in_order() {
@@ -116,5 +120,13 @@ mod tests {
             resolve_tokens_with(Some("  secret  "), "github.com").unwrap(),
             ["secret"]
         );
+    }
+
+    #[test]
+    fn parses_gh_tokens() {
+        assert_eq!(token_from_output(true, b" tok \n").as_deref(), Some("tok"));
+        assert_eq!(token_from_output(false, b"tok"), None);
+        assert_eq!(token_from_output(true, b"   "), None);
+        assert_eq!(token_from_output(true, &[0xff]), None);
     }
 }

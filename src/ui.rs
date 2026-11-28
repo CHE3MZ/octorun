@@ -55,10 +55,12 @@ pub(crate) fn underlined(name: &str) -> String {
 /// Create a download progress bar when stderr is a terminal.
 #[must_use]
 pub(crate) fn download_bar(total: u64, message: &str) -> Option<ProgressBar> {
-    if !Term::stderr().is_term() {
-        return None;
-    }
+    Term::stderr()
+        .is_term()
+        .then(|| build_download_bar(ProgressDrawTarget::stderr(), total, message))
+}
 
+fn build_download_bar(target: ProgressDrawTarget, total: u64, message: &str) -> ProgressBar {
     let style = ProgressStyle::with_template(
         "{prefix} {spinner} {msg}  {bar:10} {percent}% {bytes_per_sec}",
     )
@@ -66,11 +68,50 @@ pub(crate) fn download_bar(total: u64, message: &str) -> Option<ProgressBar> {
     .tick_strings(SPINNER_FRAMES)
     .progress_chars("█░");
 
-    let bar = ProgressBar::with_draw_target(Some(total), ProgressDrawTarget::stderr());
+    let bar = ProgressBar::with_draw_target(Some(total), target);
     bar.set_style(style);
     bar.set_prefix(styled_label(Level::INFO, next_id()));
     bar.set_message(message.to_owned());
     bar.enable_steady_tick(Duration::from_millis(80));
+    bar
+}
 
-    Some(bar)
+#[cfg(test)]
+mod tests {
+    use indicatif::ProgressDrawTarget;
+    use tracing::Level;
+
+    use super::{build_download_bar, next_id, styled_label, underlined};
+
+    #[test]
+    fn labels_every_level() {
+        for (level, name) in [
+            (Level::ERROR, "ERROR"),
+            (Level::WARN, "WARN"),
+            (Level::INFO, "INFO"),
+            (Level::DEBUG, "DEBUG"),
+            (Level::TRACE, "TRACE"),
+        ] {
+            let label = styled_label(level, 7);
+            assert!(label.contains(name), "missing {name} in {label:?}");
+            assert!(label.contains("[0007]"));
+        }
+    }
+
+    #[test]
+    fn underlines_the_name() {
+        assert!(underlined("runner.tar.gz").contains("runner.tar.gz"));
+    }
+
+    #[test]
+    fn ids_keep_increasing() {
+        assert!(next_id() < next_id());
+    }
+
+    #[test]
+    fn builds_a_progress_bar_with_the_total() {
+        let bar = build_download_bar(ProgressDrawTarget::hidden(), 42, "Downloading runner");
+        assert_eq!(bar.length(), Some(42));
+        bar.finish_and_clear();
+    }
 }

@@ -109,7 +109,10 @@ fn run_script(dir: &Path, action: &str, mut command: Command) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Options, config_args, remove_args};
+    use std::fs;
+    use std::path::Path;
+
+    use super::{Options, config_args, configure, remove, remove_args};
 
     fn options() -> Options {
         Options {
@@ -176,5 +179,79 @@ mod tests {
         };
 
         assert!(config_args(&options).iter().any(|arg| arg == "--ephemeral"));
+    }
+
+    fn script_name() -> &'static str {
+        if cfg!(windows) {
+            "config.cmd"
+        } else {
+            "config.sh"
+        }
+    }
+
+    #[cfg(unix)]
+    fn script_body(exit_code: i32) -> String {
+        format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > args.txt\nexit {exit_code}\n")
+    }
+
+    #[cfg(windows)]
+    fn script_body(exit_code: i32) -> String {
+        format!("@echo off\r\n(echo %*) > args.txt\r\nexit /b {exit_code}\r\n")
+    }
+
+    fn write_config_script(dir: &Path, exit_code: i32) {
+        let path = dir.join(script_name());
+        fs::write(&path, script_body(exit_code)).unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mut permissions = fs::metadata(&path).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&path, permissions).unwrap();
+        }
+    }
+
+    #[test]
+    fn runs_the_configuration_script() {
+        let dir = tempfile::tempdir().unwrap();
+        write_config_script(dir.path(), 0);
+
+        configure(dir.path(), &options()).unwrap();
+
+        let args = fs::read_to_string(dir.path().join("args.txt")).unwrap();
+        assert!(args.contains("--url"));
+        assert!(args.contains("https://github.com/acme/app"));
+        assert!(args.contains("--token"));
+        assert!(args.contains("secret"));
+    }
+
+    #[test]
+    fn reports_a_failed_configuration_script() {
+        let dir = tempfile::tempdir().unwrap();
+        write_config_script(dir.path(), 1);
+
+        assert!(configure(dir.path(), &options()).is_err());
+    }
+
+    #[test]
+    fn runs_the_removal_script() {
+        let dir = tempfile::tempdir().unwrap();
+        write_config_script(dir.path(), 0);
+
+        remove(dir.path(), "secret").unwrap();
+
+        let args = fs::read_to_string(dir.path().join("args.txt")).unwrap();
+        assert!(args.contains("remove"));
+        assert!(args.contains("--token"));
+    }
+
+    #[test]
+    fn reports_a_failed_removal_script() {
+        let dir = tempfile::tempdir().unwrap();
+        write_config_script(dir.path(), 1);
+
+        assert!(remove(dir.path(), "secret").is_err());
     }
 }

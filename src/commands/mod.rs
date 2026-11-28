@@ -81,20 +81,27 @@ pub(crate) fn runner_url(host: &str, scope: &Scope) -> String {
 pub(crate) fn deregister(dir: &Path, host: &str, scope: &Scope, token: Option<&str>) -> Result<()> {
     let tokens = resolve_tokens_with(token, host)?;
     let api = Client::with_tokens(host, tokens)?;
+    deregister_with(&api, dir, scope)
+}
+
+fn deregister_with(api: &Client, dir: &Path, scope: &Scope) -> Result<()> {
     let removal_token = api.runner_token(scope, TokenKind::Remove)?;
     config::remove(dir, &removal_token)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
     use std::path::PathBuf;
 
     use clap::Parser;
 
-    use super::{runner_dir, runner_url, scope_for, validate_name};
+    use super::{deregister_with, runner_dir, runner_url, scope_for, validate_name};
     use crate::cli::Cli;
     use crate::error::Error;
-    use crate::github::{Repository, Scope};
+    use crate::github::{Client, Repository, Scope};
 
     #[test]
     fn rejects_unsafe_runner_names() {
@@ -163,5 +170,55 @@ mod tests {
             scope_for(&repository, Some("acme-org"), Some("acme-inc")),
             Err(Error::Config(_))
         ));
+    }
+
+    #[test]
+    fn deregisters_a_runner_with_a_removal_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join(if cfg!(windows) {
+            "config.cmd"
+        } else {
+            "config.sh"
+        });
+
+        #[cfg(unix)]
+        fs::write(&script, "#!/bin/sh\nprintf '%s\\n' \"$@\" > args.txt\n").unwrap();
+        #[cfg(windows)]
+        fs::write(&script, "@echo off\r\n(echo %*) > args.txt\r\n").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mut permissions = fs::metadata(&script).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&script, permissions).unwrap();
+        }
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0_u8; 512];
+            let _ = stream.read(&mut buffer);
+            let body = r#"{"token":"remove-token"}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+            stream.flush().unwrap();
+        });
+        let client = Client::with_base_url(base, "token").unwrap();
+        let scope = Scope::Organization("acme".to_owned());
+
+        deregister_with(&client, dir.path(), &scope).unwrap();
+        server.join().unwrap();
+
+        let args = fs::read_to_string(dir.path().join("args.txt")).unwrap();
+        assert!(args.contains("remove"));
+        assert!(args.contains("--token"));
+        assert!(args.contains("remove-token"));
     }
 }

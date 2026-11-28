@@ -181,7 +181,12 @@ mod tests {
     use std::sync::atomic::AtomicBool;
     use std::thread::JoinHandle;
 
-    use super::{download, download_with_cancel, sha256_file};
+    use indicatif::ProgressBar;
+    use reqwest::blocking::Client;
+
+    use super::{
+        artifact_name, copy_response, download, download_with_cancel, retryable, sha256_file,
+    };
     use crate::error::Error;
 
     fn serve_sequence(
@@ -309,5 +314,63 @@ mod tests {
             sha256_file(&path).unwrap(),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn reads_artifact_names_from_urls() {
+        assert_eq!(
+            artifact_name("https://example.com/runner.tar.gz"),
+            "runner.tar.gz"
+        );
+        assert_eq!(
+            artifact_name("https://example.com/runner.zip?token=1#frag"),
+            "runner.zip"
+        );
+        assert_eq!(artifact_name("https://example.com/"), "runner");
+    }
+
+    #[test]
+    fn only_http_errors_are_retryable() {
+        assert!(!retryable(&Error::Cancelled));
+        assert!(!retryable(&Error::Config("bad".to_owned())));
+    }
+
+    #[test]
+    fn gives_up_after_three_attempts() {
+        let (base, server) = serve_sequence(vec![
+            ("500 Internal Server Error", ""),
+            ("500 Internal Server Error", ""),
+            ("500 Internal Server Error", ""),
+        ]);
+
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("runner.tar.gz");
+        let url = format!("{base}/runner.tar.gz");
+
+        assert!(download(&url, &dest).is_err());
+        let requests = server.join().unwrap();
+
+        assert_eq!(requests.len(), 3);
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn counts_bytes_on_the_progress_bar() {
+        let (base, server) = serve_sequence(vec![("200 OK", "runner-bytes")]);
+        let mut response = Client::new()
+            .get(format!("{base}/runner.tar.gz"))
+            .send()
+            .unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("runner.tar.gz");
+        let bar = ProgressBar::hidden();
+
+        let bytes = copy_response(&mut response, &dest, None, Some(&bar)).unwrap();
+        server.join().unwrap();
+
+        assert_eq!(bytes, 12);
+        assert_eq!(bar.position(), 12);
+        assert_eq!(fs::read(&dest).unwrap(), b"runner-bytes");
     }
 }

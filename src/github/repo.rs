@@ -1,6 +1,7 @@
 //! Parsing and representation of GitHub repositories.
 
 use std::fmt;
+use std::path::Path;
 use std::process::Command;
 
 use serde::Deserialize;
@@ -84,10 +85,14 @@ impl Repository {
     ///
     /// Returns [`Error::Config`] when no repository can be determined.
     pub fn current() -> Result<Self> {
-        if let Some(repository) = Self::from_gh() {
+        Self::select_current(Self::from_gh(), Self::from_git_remote())
+    }
+
+    fn select_current(gh: Option<Self>, git: Option<Self>) -> Result<Self> {
+        if let Some(repository) = gh {
             return Ok(repository);
         }
-        if let Some(repository) = Self::from_git_remote() {
+        if let Some(repository) = git {
             return Ok(repository);
         }
         Err(Error::Config(
@@ -123,13 +128,6 @@ impl Repository {
     }
 
     fn from_gh() -> Option<Self> {
-        #[derive(Deserialize)]
-        struct RepoView {
-            #[serde(rename = "nameWithOwner")]
-            name_with_owner: String,
-            url: String,
-        }
-
         let output = Command::new("gh")
             .args(["repo", "view", "--json", "nameWithOwner,url"])
             .output()
@@ -137,15 +135,31 @@ impl Repository {
         if !output.status.success() {
             return None;
         }
+        Self::parse_gh_view(&output.stdout)
+    }
 
-        let view: RepoView = serde_json::from_slice(&output.stdout).ok()?;
+    fn parse_gh_view(stdout: &[u8]) -> Option<Self> {
+        #[derive(Deserialize)]
+        struct RepoView {
+            #[serde(rename = "nameWithOwner")]
+            name_with_owner: String,
+            url: String,
+        }
+
+        let view: RepoView = serde_json::from_slice(stdout).ok()?;
         let host = view.url.split("://").nth(1)?.split('/').next()?;
         let (owner, name) = view.name_with_owner.split_once('/')?;
         Self::parse(&format!("{host}/{owner}/{name}")).ok()
     }
 
     fn from_git_remote() -> Option<Self> {
+        Self::from_git_remote_in(Path::new("."))
+    }
+
+    fn from_git_remote_in(dir: &Path) -> Option<Self> {
         let output = Command::new("git")
+            .arg("-C")
+            .arg(dir)
             .args(["remote", "get-url", "origin"])
             .output()
             .ok()?;
@@ -226,5 +240,69 @@ mod tests {
     #[test]
     fn rejects_unknown_remote_forms() {
         assert!(Repository::from_remote_url("file:///tmp/app").is_err());
+    }
+
+    #[test]
+    fn parses_gh_views() {
+        let repo = Repository::parse_gh_view(
+            br#"{"nameWithOwner":"acme/app","url":"https://github.com/acme/app"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(repo.host(), "github.com");
+        assert_eq!(repo.to_string(), "acme/app");
+        assert!(Repository::parse_gh_view(b"not json").is_none());
+    }
+
+    #[test]
+    fn prefers_gh_and_falls_back_to_git() {
+        let gh = Repository::parse("gh-owner/gh-repo").unwrap();
+        let git = Repository::parse("git-owner/git-repo").unwrap();
+
+        assert_eq!(
+            Repository::select_current(Some(gh), Some(git.clone()))
+                .unwrap()
+                .to_string(),
+            "gh-owner/gh-repo"
+        );
+        assert_eq!(
+            Repository::select_current(None, Some(git))
+                .unwrap()
+                .to_string(),
+            "git-owner/git-repo"
+        );
+        assert!(Repository::select_current(None, None).is_err());
+    }
+
+    #[test]
+    fn reads_the_origin_remote_from_a_repository() {
+        let probe = std::process::Command::new("git").arg("--version").output();
+        if !probe.is_ok_and(|output| output.status.success()) {
+            return;
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let init = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .arg("init")
+            .output()
+            .unwrap();
+        assert!(init.status.success());
+
+        let remote = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .args(["remote", "add", "origin", "git@github.com:acme/app.git"])
+            .output()
+            .unwrap();
+        assert!(remote.status.success());
+
+        assert_eq!(
+            Repository::from_git_remote_in(dir.path())
+                .unwrap()
+                .to_string(),
+            "acme/app"
+        );
     }
 }

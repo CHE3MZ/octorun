@@ -531,4 +531,49 @@ mod tests {
         assert_eq!(TokenKind::Registration.path(), "registration-token");
         assert_eq!(TokenKind::Remove.path(), "remove-token");
     }
+
+    #[test]
+    fn requires_at_least_one_token() {
+        assert!(matches!(
+            Client::with_base_urls("http://localhost", Vec::new()),
+            Err(Error::MissingToken)
+        ));
+    }
+
+    #[test]
+    fn builds_authenticated_and_anonymous_clients() {
+        assert!(Client::new("github.com", "token").is_ok());
+        assert!(Client::with_tokens("github.example.com", vec!["token".to_owned()]).is_ok());
+        assert!(Client::with_base_url("http://localhost", "token").is_ok());
+        assert!(Client::anonymous("github.com").is_ok());
+        assert!(Client::anonymous("github.example.com").is_ok());
+    }
+
+    #[test]
+    fn rejects_empty_runner_tokens() {
+        let (base, server) = serve_once("200 OK", r#"{"token":""}"#);
+        let client = Client::with_base_url(base, "secret").unwrap();
+        let scope = Scope::Organization("acme".to_owned());
+
+        let error = client
+            .runner_token(&scope, TokenKind::Registration)
+            .unwrap_err();
+        server.join().unwrap();
+
+        assert!(matches!(error, Error::Api(message) if message.contains("empty")));
+    }
+
+    #[test]
+    fn reports_when_every_token_is_rejected() {
+        let (base, server) = serve_sequence(vec![
+            ("401 Unauthorized", r#"{"message":"bad"}"#.to_owned()),
+            ("401 Unauthorized", r#"{"message":"bad"}"#.to_owned()),
+        ]);
+        let client = Client::with_base_urls(base, vec!["a".to_owned(), "b".to_owned()]).unwrap();
+
+        let error = client.latest_runner_release().unwrap_err();
+        server.join().unwrap();
+
+        assert!(matches!(error, Error::Api(_)));
+    }
 }

@@ -158,4 +158,92 @@ mod tests {
 
         assert!(extract(&archive, &dir.path().join("out")).is_err());
     }
+
+    #[test]
+    fn extracts_tgz_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("runner.tgz");
+        {
+            let file = File::create(&archive).unwrap();
+            let encoder = GzEncoder::new(file, Compression::fast());
+            let mut builder = tar::Builder::new(encoder);
+
+            let data = b"runner";
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, "runner", &data[..])
+                .unwrap();
+
+            let encoder = builder.into_inner().unwrap();
+            encoder.finish().unwrap();
+        }
+
+        let dest = dir.path().join("out");
+        extract(&archive, &dest).unwrap();
+
+        assert_eq!(fs::read(dest.join("runner")).unwrap(), b"runner");
+    }
+
+    #[test]
+    fn creates_directories_from_zip_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("runner.zip");
+        {
+            let file = File::create(&archive).unwrap();
+            let mut zip = ZipWriter::new(file);
+            let options = SimpleFileOptions::default();
+
+            zip.add_directory("bin/", options).unwrap();
+            zip.start_file("bin/runner", options).unwrap();
+            zip.write_all(b"binary").unwrap();
+            zip.finish().unwrap();
+        }
+
+        let dest = dir.path().join("out");
+        extract(&archive, &dest).unwrap();
+
+        assert!(dest.join("bin").is_dir());
+        assert_eq!(
+            fs::read(dest.join("bin").join("runner")).unwrap(),
+            b"binary"
+        );
+    }
+
+    #[test]
+    fn rejects_missing_archive() {
+        let dir = tempfile::tempdir().unwrap();
+
+        assert!(extract(&dir.path().join("missing.zip"), &dir.path().join("zip")).is_err());
+        assert!(extract(&dir.path().join("missing.tar.gz"), &dir.path().join("tar")).is_err());
+    }
+
+    #[test]
+    fn skips_zip_entries_that_escape_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("runner.zip");
+        let mut wrote = false;
+        {
+            let file = File::create(&archive).unwrap();
+            let mut zip = ZipWriter::new(file);
+            let options = SimpleFileOptions::default();
+
+            if zip.start_file("../escape.txt", options).is_ok() {
+                zip.write_all(b"x").unwrap();
+                wrote = true;
+            }
+            zip.finish().unwrap();
+        }
+        if !wrote {
+            return;
+        }
+
+        let dest = dir.path().join("out");
+        extract(&archive, &dest).unwrap();
+
+        assert!(!dir.path().join("escape.txt").exists());
+        assert!(!dest.join("escape.txt").exists());
+    }
 }
