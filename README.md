@@ -1,6 +1,6 @@
 <img src="assets/logo.png" alt="Octorun Logo" width="376" />
 
-# **octorun**
+# octorun
 
 [![CI checks](https://img.shields.io/github/actions/workflow/status/CHE3MZ/octorun/ci.yml?style=for-the-badge&logo=github&logoColor=99A0A8&labelColor=373F46&label=CI&color=32CA55)](https://github.com/CHE3MZ/octorun/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/octorun?style=for-the-badge&logo=rust&logoColor=99A0A8&labelColor=373F46&label=Crates.io&color=32CA55)](https://crates.io/crates/octorun)
@@ -45,7 +45,7 @@ curl -LsSf https://raw.githubusercontent.com/CHE3MZ/octorun/master/scripts/insta
 
 ### Windows
 
-```powershell
+```sh
 irm https://raw.githubusercontent.com/CHE3MZ/octorun/master/scripts/install/install.ps1 | iex
 ```
 
