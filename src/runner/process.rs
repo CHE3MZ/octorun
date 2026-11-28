@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result};
 
@@ -130,6 +130,53 @@ pub fn stop(dir: &Path) -> Result<u32> {
     Ok(pid)
 }
 
+/// Stop the runner recorded in `dir` if it is still alive.
+///
+/// Returns the pid when a live process was terminated, or `None` when no
+/// process was running.
+///
+/// # Errors
+///
+/// Returns an error if the pid cannot be read or the process cannot be
+/// terminated.
+pub(crate) fn stop_if_running(dir: &Path) -> Result<Option<u32>> {
+    let Some(pid) = read_pid(dir)? else {
+        return Ok(None);
+    };
+
+    if !is_alive(pid) {
+        tracing::warn!("runner process {pid} is not running");
+        remove_pid(dir)?;
+        return Ok(None);
+    }
+
+    terminate(pid)?;
+    remove_pid(dir)?;
+    Ok(Some(pid))
+}
+
+/// Wait for `pid` to exit, polling until `timeout` elapses.
+///
+/// # Errors
+///
+/// Returns an error if the process is still alive after `timeout`.
+pub(crate) fn wait_for_exit(pid: u32, timeout: Duration) -> Result<()> {
+    let deadline = Instant::now() + timeout;
+
+    while Instant::now() < deadline {
+        if !is_alive(pid) {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+
+    if is_alive(pid) {
+        return Err(Error::Command(format!("runner process {pid} did not exit")));
+    }
+
+    Ok(())
+}
+
 fn pid_path(dir: &Path) -> PathBuf {
     dir.join(PID_FILE)
 }
@@ -229,11 +276,13 @@ mod tests {
     use std::fs;
     use std::path::Path;
     use std::sync::atomic::AtomicBool;
+    use std::time::Duration;
 
     use super::{
         PID_FILE, WaitOutcome, log_path, pid_path, read_pid, remove_pid, run_script_name, spawn,
-        start, stop, wait, write_pid,
+        start, stop, stop_if_running, wait, wait_for_exit, write_pid,
     };
+    use crate::error::Error;
 
     #[test]
     fn records_and_clears_pid_file() {
@@ -381,5 +430,49 @@ mod tests {
         fs::write(pid_path(dir.path()), "not-a-pid").unwrap();
 
         assert_eq!(read_pid(dir.path()).unwrap(), None);
+    }
+
+    #[test]
+    fn stop_if_running_ignores_a_missing_pid() {
+        let dir = tempfile::tempdir().unwrap();
+
+        assert_eq!(stop_if_running(dir.path()).unwrap(), None);
+    }
+
+    #[test]
+    fn stop_if_running_clears_a_stale_pid() {
+        let dir = tempfile::tempdir().unwrap();
+        write_pid(dir.path(), DEAD_PID).unwrap();
+
+        assert_eq!(stop_if_running(dir.path()).unwrap(), None);
+        assert!(!dir.path().join(PID_FILE).exists());
+    }
+
+    #[test]
+    fn stop_if_running_terminates_a_live_process() {
+        let dir = tempfile::tempdir().unwrap();
+        write_run_script(dir.path(), sleeping_script());
+
+        let mut child = spawn(dir.path()).unwrap();
+        let pid = child.id();
+        let waiter = std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+
+        assert_eq!(stop_if_running(dir.path()).unwrap(), Some(pid));
+        waiter.join().unwrap();
+        assert!(!dir.path().join(PID_FILE).exists());
+    }
+
+    #[test]
+    fn waits_for_a_dead_process() {
+        wait_for_exit(DEAD_PID, Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn times_out_on_a_live_process() {
+        let error = wait_for_exit(std::process::id(), Duration::from_millis(50)).unwrap_err();
+
+        assert!(matches!(error, Error::Command(_)));
     }
 }

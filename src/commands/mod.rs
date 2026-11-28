@@ -2,6 +2,7 @@
 
 pub mod create;
 pub mod remove;
+pub mod restart;
 pub mod start;
 pub mod stop;
 pub mod temp;
@@ -26,6 +27,7 @@ pub fn run(cli: &Cli) -> Result<()> {
         Command::Remove(args) => remove::run(cli, args),
         Command::Start => start::run(cli),
         Command::Stop => stop::run(cli),
+        Command::Restart => restart::run(cli),
         Command::Temp(args) => temp::run(cli, args),
     }
 }

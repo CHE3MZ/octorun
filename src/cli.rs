@@ -64,6 +64,9 @@ pub enum Command {
     /// Stop a preconfigured runner.
     Stop,
 
+    /// Restart a runner started by octorun.
+    Restart,
+
     /// Create a temporary runner and remove it when stopped.
     Temp(TempArgs),
 }
@@ -204,6 +207,12 @@ mod tests {
     #[test]
     fn subcommand_is_required() {
         assert!(Cli::try_parse_from(["octorun"]).is_err());
+    }
+
+    #[test]
+    fn restart_parses() {
+        let cli = Cli::try_parse_from(["octorun", "restart"]).unwrap();
+        assert!(matches!(cli.command, Command::Restart));
     }
 
     #[test]

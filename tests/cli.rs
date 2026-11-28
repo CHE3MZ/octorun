@@ -16,6 +16,7 @@ fn help_lists_all_subcommands() {
         .stdout(predicate::str::contains("remove"))
         .stdout(predicate::str::contains("start"))
         .stdout(predicate::str::contains("stop"))
+        .stdout(predicate::str::contains("restart"))
         .stdout(predicate::str::contains("temp"));
 }
 
